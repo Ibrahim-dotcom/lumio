@@ -1,0 +1,182 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────
+   DESIGN TOKENS — Lumio
+   Faithful port from lumio-photo-editor.html
+───────────────────────────────────── */
+:root {
+  /* Surfaces – dark neutral with slight blue shift */
+  --s0: #08080c;
+  --s1: #0e0e16;
+  --s2: #141420;
+  --s3: #1b1b2a;
+  --s4: #222234;
+  --s5: #2a2a3e;
+  --s6: #333348;
+
+  /* Borders */
+  --b1: rgba(255, 255, 255, 0.055);
+  --b2: rgba(255, 255, 255, 0.1);
+  --b3: rgba(255, 255, 255, 0.18);
+
+  /* Text */
+  --t1: #f0f0f8;
+  --t2: #8080a0;
+  --t3: #404060;
+
+  /* Accent – periwinkle violet */
+  --a: #7c6fff;
+  --a2: #a89dff;
+  --a3: #cdc8ff;
+  --ag: rgba(124, 111, 255, 0.14);
+  --ag2: rgba(124, 111, 255, 0.07);
+
+  /* Rose – gradient partner for accent */
+  --rose: #f06292;
+
+  /* Status */
+  --green: #18e8a8;
+  --gg: rgba(24, 232, 168, 0.1);
+  --red: #ff4f6d;
+  --rg: rgba(255, 79, 109, 0.1);
+  --amber: #f59e0b;
+
+  /* Radii */
+  --r: 8px;
+  --r2: 12px;
+  --r3: 18px;
+
+  /* Layout dimensions */
+  --lw: 264px;
+  --rw: 272px;
+  --tb: 50px;
+
+  /* Motion */
+  --fast: 0.14s ease;
+  --med: 0.24s ease;
+  --spring: 0.36s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ─────────────────────────────────────
+   BASE
+───────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 13px;
+  background: var(--s0);
+  color: var(--t1);
+  display: flex;
+  flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+}
+
+button, input {
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-thumb { background: var(--s5); border-radius: 2px; }
+::-webkit-scrollbar-track { background: transparent; }
+::selection { background: var(--ag); color: var(--a3); }
+
+/* ─────────────────────────────────────
+   SLIDER — custom range input
+───────────────────────────────────── */
+.lumio-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  background: linear-gradient(
+    to right,
+    var(--a) var(--fp, 50%),
+    var(--s5) var(--fp, 50%)
+  );
+}
+
+.lumio-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--a);
+  border: 2px solid var(--s1);
+  box-shadow: 0 0 0 1.5px var(--a);
+  cursor: pointer;
+  transition: transform var(--fast);
+}
+
+.lumio-slider:hover::-webkit-slider-thumb {
+  transform: scale(1.22);
+  background: var(--a2);
+}
+
+/* ─────────────────────────────────────
+   ANIMATIONS
+───────────────────────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideUp {
+  from { transform: translateX(-50%) translateY(0); opacity: 1; }
+  to { transform: translateX(-50%) translateY(-60px); opacity: 0; }
+}
+
+.animate-blink { animation: blink 1.8s infinite; }
+.animate-spin-lumio { animation: spin 0.72s linear infinite; }
+
+/* ─────────────────────────────────────
+   PRESET TILE hover
+───────────────────────────────────── */
+.preset-tile {
+  transition: transform var(--fast), border-color var(--fast);
+}
+.preset-tile:hover { transform: scale(1.07); }
+
+/* ─────────────────────────────────────
+   CHIP hover
+───────────────────────────────────── */
+.chip-btn {
+  transition: border-color var(--fast), color var(--fast), background var(--fast);
+}
+.chip-btn:hover {
+  border-color: var(--a) !important;
+  color: var(--a2) !important;
+  background: var(--ag2) !important;
+}
+
+/* ─────────────────────────────────────
+   PROMPT glow border focus
+───────────────────────────────────── */
+.pbox-glow::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: calc(var(--r2) + 2px);
+  background: linear-gradient(130deg, var(--a), var(--rose));
+  opacity: 0;
+  transition: opacity 0.22s ease;
+  z-index: 0;
+  pointer-events: none;
+}
+.pbox-glow:focus-within::before { opacity: 1; }

@@ -1,0 +1,1657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Lumio — AI Photo Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet"/>
+<style>
+/* ─────────────────────────────────────
+   TOKENS
+───────────────────────────────────── */
+:root{
+  /* Surfaces – dark neutral with slight blue shift */
+  --s0:#08080c;
+  --s1:#0e0e16;
+  --s2:#141420;
+  --s3:#1b1b2a;
+  --s4:#222234;
+  --s5:#2a2a3e;
+  --s6:#333348;
+
+  /* Borders */
+  --b1:rgba(255,255,255,0.055);
+  --b2:rgba(255,255,255,0.1);
+  --b3:rgba(255,255,255,0.18);
+
+  /* Text */
+  --t1:#f0f0f8;
+  --t2:#8080a0;
+  --t3:#404060;
+
+  /* Accent – periwinkle violet */
+  --a:#7c6fff;
+  --a2:#a89dff;
+  --a3:#cdc8ff;
+  --ag:rgba(124,111,255,0.14);
+  --ag2:rgba(124,111,255,0.07);
+
+  /* Rose – used only for the gradient on the prompt bar */
+  --rose:#f06292;
+
+  /* Status */
+  --green:#18e8a8;
+  --gg:rgba(24,232,168,0.1);
+  --red:#ff4f6d;
+  --rg:rgba(255,79,109,0.1);
+  --amber:#f59e0b;
+
+  /* Radii */
+  --r:8px;
+  --r2:12px;
+  --r3:18px;
+
+  /* Type */
+  --body:'DM Sans',system-ui,sans-serif;
+  --display:'Space Grotesk',system-ui,sans-serif;
+
+  /* Layout */
+  --lw:264px;
+  --rw:272px;
+  --tb:50px;
+
+  /* Motion */
+  --fast:0.14s ease;
+  --med:0.24s ease;
+  --spring:0.36s cubic-bezier(0.16,1,0.3,1);
+}
+
+/* ─────────────────────────────────────
+   BASE
+───────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--body);font-size:13px;background:var(--s0);color:var(--t1);display:flex;flex-direction:column;-webkit-font-smoothing:antialiased}
+button,input{font-family:var(--body)}
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-thumb{background:var(--s5);border-radius:2px}
+::-webkit-scrollbar-track{background:transparent}
+::selection{background:var(--ag);color:var(--a3)}
+
+/* ─────────────────────────────────────
+   TOOLBAR
+───────────────────────────────────── */
+#toolbar{
+  height:var(--tb);background:var(--s1);
+  border-bottom:1px solid var(--b1);
+  display:flex;align-items:center;
+  padding:0 14px;gap:3px;
+  flex-shrink:0;z-index:100;
+}
+.logo{
+  font-family:var(--display);font-size:19px;font-weight:700;
+  letter-spacing:-0.7px;color:var(--t1);margin-right:12px;
+  user-select:none;cursor:default;flex-shrink:0;
+}
+.logo-accent{color:var(--a2)}
+.logo-tag{
+  font-family:var(--body);font-size:9.5px;font-weight:500;
+  color:var(--t3);letter-spacing:.04em;text-transform:uppercase;
+  margin-left:2px;vertical-align:middle;
+}
+.tdiv{width:1px;height:20px;background:var(--b2);margin:0 8px;flex-shrink:0}
+
+.tbtn{
+  height:30px;padding:0 10px;
+  border-radius:var(--r);border:1px solid transparent;
+  background:transparent;color:var(--t2);
+  font-size:12.5px;font-weight:500;cursor:pointer;
+  display:flex;align-items:center;gap:5px;
+  transition:var(--fast);white-space:nowrap;flex-shrink:0;
+}
+.tbtn:hover{background:var(--s3);color:var(--t1)}
+.tbtn.on{background:var(--s3);color:var(--t1);border-color:var(--b2)}
+.tbtn.danger:hover{color:var(--red)}
+.tbtn svg{width:14px;height:14px;stroke-width:1.8;flex-shrink:0}
+
+.tr{margin-left:auto;display:flex;align-items:center;gap:8px}
+
+.pill-ai{
+  display:inline-flex;align-items:center;gap:5px;
+  background:linear-gradient(125deg,var(--a),var(--rose));
+  border-radius:20px;padding:3px 11px;
+  font-size:10.5px;font-weight:600;color:#fff;letter-spacing:.04em;
+  flex-shrink:0;
+}
+.pill-ai-dot{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,0.7);animation:blink 1.8s infinite}
+@keyframes blink{0%,100%{opacity:.4}50%{opacity:1}}
+
+.btn-export{
+  height:30px;padding:0 14px;
+  background:var(--a);color:#fff;border:none;
+  border-radius:var(--r);font-size:12.5px;font-weight:600;
+  cursor:pointer;display:flex;align-items:center;gap:5px;
+  transition:var(--fast);flex-shrink:0;
+}
+.btn-export:hover{background:var(--a2)}
+.btn-export svg{width:13px;height:13px;stroke-width:2}
+
+/* ─────────────────────────────────────
+   MAIN 3-COLUMN LAYOUT
+───────────────────────────────────── */
+#main{flex:1;display:flex;overflow:hidden}
+
+/* ─────────────────────────────────────
+   LEFT PANEL
+───────────────────────────────────── */
+#lp{
+  width:var(--lw);background:var(--s1);
+  border-right:1px solid var(--b1);
+  display:flex;flex-direction:column;
+  flex-shrink:0;overflow:hidden;
+}
+.lp-top{padding:13px;border-bottom:1px solid var(--b1);flex-shrink:0}
+.sec-label{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);margin-bottom:9px}
+
+/* Upload zone */
+#upload-zone{
+  border:1.5px dashed var(--b2);border-radius:var(--r2);
+  cursor:pointer;transition:var(--fast);position:relative;
+  background:var(--s2);overflow:hidden;
+}
+#upload-zone:hover,#upload-zone.drag{border-color:var(--a);background:var(--ag2)}
+#uz-file{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+#uz-thumb{width:100%;height:88px;object-fit:cover;display:none}
+#uz-inner{padding:16px 12px;text-align:center}
+#uz-inner svg{color:var(--t3);margin-bottom:5px}
+#uz-inner p{font-size:12px;color:var(--t2);line-height:1.65}
+#uz-inner strong{color:var(--t1);font-weight:500}
+#uz-sub{font-size:10px;color:var(--t3);margin-top:3px}
+
+/* Change photo button shown after load */
+#uz-change{
+  position:absolute;bottom:6px;right:6px;
+  background:rgba(0,0,0,0.7);border:none;border-radius:6px;
+  color:#fff;font-size:10px;padding:3px 8px;cursor:pointer;
+  display:none;transition:var(--fast);
+}
+#uz-change:hover{background:rgba(0,0,0,0.9)}
+
+/* Panel tabs */
+.lp-tabs{display:flex;gap:2px;padding:8px 10px;border-bottom:1px solid var(--b1);flex-shrink:0}
+.lp-tab{
+  flex:1;height:27px;background:transparent;
+  border:1px solid transparent;border-radius:var(--r);
+  font:500 11.5px var(--body);color:var(--t3);cursor:pointer;transition:var(--fast);
+}
+.lp-tab.on{background:var(--s3);color:var(--t1);border-color:var(--b2)}
+
+.lp-scroll{flex:1;overflow-y:auto;overflow-x:hidden}
+.lp-pane{display:none;padding:8px;flex-direction:column;gap:4px}
+.lp-pane.on{display:flex}
+
+/* History */
+.h-empty{
+  display:flex;flex-direction:column;align-items:center;
+  gap:8px;padding:28px 12px;text-align:center;
+  color:var(--t3);font-size:12px;line-height:1.75;
+}
+.h-empty svg{opacity:.4}
+
+.hitem{
+  background:var(--s2);border:1px solid var(--b1);
+  border-radius:var(--r);padding:8px 10px;
+  cursor:pointer;transition:var(--fast);
+  display:flex;align-items:flex-start;gap:7px;
+}
+.hitem:hover{border-color:var(--b2);background:var(--s3)}
+.hitem.cur{border-color:var(--a);background:var(--ag2)}
+.hdot{width:6px;height:6px;border-radius:50%;background:var(--t3);margin-top:5px;flex-shrink:0;transition:var(--fast)}
+.hitem.cur .hdot{background:var(--a);box-shadow:0 0 8px var(--a)}
+.hbody{flex:1;min-width:0}
+.hlabel{font-size:12px;color:var(--t1);line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hmeta{font-size:10px;color:var(--t3);margin-top:2px}
+.hundo{background:none;border:none;cursor:pointer;color:var(--t3);padding:0;font-size:11px;transition:var(--fast);flex-shrink:0}
+.hundo:hover{color:var(--red)}
+
+/* Info tab */
+.info-rows{padding:8px}
+.irow{display:flex;justify-content:space-between;align-items:center;padding:6px 2px;border-bottom:1px solid var(--b1);font-size:12px}
+.irow:last-child{border:none}
+.ik{color:var(--t3)}
+.iv{color:var(--t2);font-variant-numeric:tabular-nums;text-align:right}
+
+/* ─────────────────────────────────────
+   CENTRE – CANVAS + PROMPT
+───────────────────────────────────── */
+#centre{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
+
+/* Stage */
+#stage{
+  flex:1;display:flex;align-items:center;justify-content:center;
+  overflow:hidden;position:relative;background:var(--s0);
+}
+
+/* Checker grid */
+#stage::before{
+  content:'';position:absolute;inset:0;pointer-events:none;z-index:0;
+  background-image:linear-gradient(var(--b1) 1px,transparent 1px),linear-gradient(90deg,var(--b1) 1px,transparent 1px);
+  background-size:44px 44px;
+}
+
+/* Radial bloom behind canvas */
+#stage-bloom{
+  position:absolute;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(ellipse 60% 55% at 50% 50%,rgba(124,111,255,0.045) 0%,transparent 70%);
+}
+
+#cv-wrap{position:relative;z-index:1}
+#main-cv{
+  display:block;border-radius:3px;
+  box-shadow:0 0 0 1px var(--b2),0 24px 72px rgba(0,0,0,0.75);
+}
+
+/* Empty / drop state */
+#drop-state{
+  position:absolute;inset:0;z-index:2;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  pointer-events:none;
+}
+#drop-state.gone{display:none}
+.ds-icon{color:var(--t3);opacity:.35}
+.ds-h{font-family:var(--display);font-size:22px;font-weight:600;color:var(--t1);text-align:center}
+.ds-sub{font-size:13px;color:var(--t2);text-align:center;line-height:1.65}
+.ds-kbd{display:inline;background:var(--s4);border:1px solid var(--b2);border-radius:4px;padding:1px 6px;font-size:11px;color:var(--t2)}
+.ds-or{display:flex;align-items:center;gap:10px;width:180px}
+.ds-or::before,.ds-or::after{content:'';flex:1;height:1px;background:var(--b2)}
+.ds-or span{font-size:11px;color:var(--t3)}
+.ds-upload{
+  padding:9px 24px;background:var(--a);color:#fff;
+  border:none;border-radius:var(--r);font:500 13px var(--body);
+  cursor:pointer;pointer-events:all;position:relative;transition:var(--fast);
+}
+.ds-upload:hover{background:var(--a2)}
+.ds-upload input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+
+/* Drag highlight */
+#stage.dragging{outline:2px dashed var(--a);outline-offset:-3px}
+
+/* Processing overlay */
+#proc{
+  position:absolute;inset:0;z-index:50;
+  background:rgba(8,8,12,0.86);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;
+}
+#proc.on{display:flex}
+.proc-ring{
+  width:38px;height:38px;
+  border:2px solid var(--b2);border-top-color:var(--a);
+  border-radius:50%;animation:spin .72s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+#proc-h{font-family:var(--display);font-size:15px;font-weight:600;color:var(--t1)}
+#proc-s{font-size:12px;color:var(--t2)}
+.proc-dots{display:flex;gap:7px}
+.proc-dot{width:5px;height:5px;border-radius:50%;background:var(--s5);transition:background .25s,transform .25s}
+.proc-dot.on{background:var(--a);transform:scale(1.4)}
+
+/* Toast */
+#toast{
+  position:absolute;top:14px;left:50%;
+  transform:translateX(-50%) translateY(-60px);
+  background:var(--s4);border:1px solid var(--b2);border-radius:var(--r2);
+  padding:8px 14px;font-size:12.5px;color:var(--t1);
+  display:flex;align-items:center;gap:8px;white-space:nowrap;
+  box-shadow:0 8px 28px rgba(0,0,0,.55);
+  transition:transform var(--spring);z-index:60;
+}
+#toast.on{transform:translateX(-50%) translateY(0)}
+.tdot{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0}
+.tdot.e{background:var(--red)}
+
+/* Float controls */
+.fc{
+  position:absolute;bottom:14px;z-index:10;
+  display:none;background:var(--s2);border:1px solid var(--b2);
+  border-radius:var(--r);overflow:hidden;
+}
+.fc.on{display:flex}
+#zoom-fc{left:50%;transform:translateX(-50%)}
+#cmp-fc{right:14px}
+.fc-btn{
+  width:32px;height:32px;background:none;border:none;
+  color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:var(--fast);
+}
+.fc-btn:hover{background:var(--s4);color:var(--t1)}
+.fc-btn svg{width:13px;height:13px;stroke-width:2}
+.fc-lbl{
+  padding:0 8px;font-size:11.5px;color:var(--t2);
+  min-width:46px;text-align:center;font-variant-numeric:tabular-nums;
+  border-left:1px solid var(--b1);border-right:1px solid var(--b1);
+  display:flex;align-items:center;justify-content:center;
+}
+.fc-div{width:1px;background:var(--b1);align-self:stretch}
+
+/* ─────────────────────────────────────
+   PROMPT BAR — THE PRODUCT'S SOUL
+───────────────────────────────────── */
+#pbar{
+  background:var(--s1);border-top:1px solid var(--b1);
+  padding:13px 14px 11px;flex-shrink:0;
+}
+
+/* Chips */
+#chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.chip{
+  padding:4px 11px;border-radius:20px;
+  border:1px solid var(--b2);background:transparent;
+  color:var(--t2);font:12px var(--body);cursor:pointer;
+  transition:var(--fast);white-space:nowrap;
+}
+.chip:hover{border-color:var(--a);color:var(--a2);background:var(--ag2)}
+.chip.applied{border-color:var(--green);color:var(--green);background:var(--gg)}
+
+/* Prompt input row */
+#pinput-row{display:flex;gap:9px;align-items:center}
+
+/* The glowing gradient border on the prompt box */
+#pbox{
+  flex:1;position:relative;border-radius:var(--r2);
+}
+#pbox::before{
+  content:'';position:absolute;inset:-2px;
+  border-radius:calc(var(--r2) + 2px);
+  background:linear-gradient(130deg,var(--a),var(--rose));
+  opacity:0;transition:opacity .22s ease;z-index:0;pointer-events:none;
+}
+#pbox:focus-within::before{opacity:1}
+#pinner{
+  position:relative;z-index:1;
+  background:var(--s2);border:1px solid var(--b2);
+  border-radius:var(--r2);
+  display:flex;align-items:center;gap:9px;padding:11px 14px;
+  transition:border-color var(--fast);
+}
+#pbox:focus-within #pinner{border-color:transparent;background:var(--s3)}
+.picon{color:var(--t3);flex-shrink:0}
+.picon svg{width:16px;height:16px;stroke-width:1.8}
+#pinput{
+  flex:1;background:none;border:none;outline:none;
+  font:14px var(--body);color:var(--t1);caret-color:var(--a2);
+}
+#pinput::placeholder{color:var(--t3)}
+#pcount{font-size:10px;color:var(--t3);flex-shrink:0;font-variant-numeric:tabular-nums}
+
+#psend{
+  width:42px;height:42px;flex-shrink:0;
+  background:var(--s3);border:1px solid var(--b2);
+  border-radius:var(--r);color:var(--t3);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:var(--fast);
+}
+#psend.on{
+  background:linear-gradient(130deg,var(--a),var(--rose));
+  border-color:transparent;color:#fff;
+  box-shadow:0 4px 18px rgba(124,111,255,.36);
+}
+#psend:hover.on{filter:brightness(1.1)}
+#psend svg{width:18px;height:18px;stroke-width:2}
+
+/* Hint row */
+#phint{display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap}
+.hkv{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--t3)}
+.kk{background:var(--s4);border:1px solid var(--b2);border-radius:4px;padding:1px 5px;font-size:10px;color:var(--t2)}
+.hd{color:var(--b2);font-size:12px}
+
+/* AI ready indicator */
+#ai-ready{
+  display:none;align-items:center;gap:6px;
+  padding:3px 10px;background:var(--ag);
+  border:1px solid rgba(124,111,255,.22);border-radius:20px;
+  font-size:11px;color:var(--a2);margin-left:auto;
+}
+#ai-ready.on{display:flex}
+.ard{width:5px;height:5px;border-radius:50%;background:var(--a);animation:blink 1.8s infinite}
+
+/* ─────────────────────────────────────
+   RIGHT PANEL — ADJUSTMENTS
+───────────────────────────────────── */
+#rp{
+  width:var(--rw);background:var(--s1);
+  border-left:1px solid var(--b1);
+  display:flex;flex-direction:column;
+  flex-shrink:0;overflow-y:auto;overflow-x:hidden;
+}
+
+/* Histogram */
+#hist-wrap{padding:12px;border-bottom:1px solid var(--b1);flex-shrink:0}
+#histogram{width:100%;height:50px;display:block;border-radius:6px}
+
+/* Sections */
+.rsec{border-bottom:1px solid var(--b1);flex-shrink:0}
+.rsec-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 12px;cursor:pointer;user-select:none;transition:var(--fast);
+}
+.rsec-head:hover{background:var(--s2)}
+.rsec-lbl{font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--t3)}
+.rsec-right{display:flex;align-items:center;gap:6px}
+.rsec-reset{
+  font-size:10px;color:var(--t3);background:none;border:none;
+  cursor:pointer;padding:2px 6px;border-radius:4px;transition:var(--fast);
+}
+.rsec-reset:hover{color:var(--a2);background:var(--ag2)}
+.rsec-caret{color:var(--t3);font-size:8px;transition:transform var(--fast)}
+.rsec.collapsed .rsec-caret{transform:rotate(-90deg)}
+.rsec.collapsed .rsec-body{display:none}
+.rsec-body{padding:0 12px 12px}
+
+/* Sliders */
+.srow{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.srow:last-child{margin-bottom:0}
+.slbl{font-size:11.5px;color:var(--t2);width:80px;flex-shrink:0;line-height:1.3}
+.sli{
+  flex:1;-webkit-appearance:none;height:3px;border-radius:2px;outline:none;cursor:pointer;
+  background:linear-gradient(to right,var(--a) var(--fp,50%),var(--s5) var(--fp,50%));
+}
+.sli::-webkit-slider-thumb{
+  -webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+  background:var(--a);border:2px solid var(--s1);
+  box-shadow:0 0 0 1.5px var(--a);cursor:pointer;transition:transform var(--fast);
+}
+.sli:hover::-webkit-slider-thumb{transform:scale(1.22);background:var(--a2)}
+.sval{
+  font-size:11px;color:var(--t2);width:28px;text-align:right;
+  font-variant-numeric:tabular-nums;cursor:pointer;border-radius:4px;transition:var(--fast);
+}
+.sval:hover{color:var(--a2)}
+.sval[title]:hover::after{content:attr(title);position:absolute;font-size:10px;color:var(--t3)}
+
+/* HSL swatches */
+.hsl-row{display:flex;gap:4px;margin-bottom:10px}
+.hsl-sw{
+  flex:1;height:20px;border-radius:5px;cursor:pointer;
+  border:2px solid transparent;transition:var(--fast);
+}
+.hsl-sw:hover{transform:scaleY(1.25)}
+.hsl-sw.on{border-color:#fff;box-shadow:0 0 8px rgba(255,255,255,.3)}
+
+/* Presets grid */
+.pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+.ptile{
+  aspect-ratio:1;border-radius:7px;cursor:pointer;
+  border:2px solid transparent;position:relative;overflow:hidden;
+  transition:var(--fast);
+}
+.ptile:hover{transform:scale(1.07)}
+.ptile.on{border-color:var(--a);box-shadow:0 0 0 1px var(--a)}
+.ptile canvas{width:100%;height:100%;display:block}
+.ptile-lbl{
+  position:absolute;bottom:0;left:0;right:0;
+  background:rgba(0,0,0,.68);color:#fff;
+  font-size:8.5px;font-weight:600;text-align:center;padding:2px 0;
+}
+
+/* Export */
+.exp-fmts{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:10px}
+.exp-fmt{
+  background:var(--s3);border:1px solid var(--b1);border-radius:var(--r);
+  padding:7px;cursor:pointer;text-align:center;transition:var(--fast);
+}
+.exp-fmt:hover{border-color:var(--b2)}
+.exp-fmt.on{border-color:var(--a);background:var(--ag2)}
+.exp-fmt-name{font-size:12px;font-weight:600;color:var(--t1)}
+.exp-fmt-sub{font-size:9px;color:var(--t3);margin-top:1px}
+.exp-qual{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.exp-btn{
+  width:100%;height:34px;
+  background:linear-gradient(130deg,var(--a),var(--rose));
+  color:#fff;border:none;border-radius:var(--r);
+  font:600 13px var(--body);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  transition:var(--fast);box-shadow:0 4px 18px rgba(124,111,255,.28);
+}
+.exp-btn:hover{filter:brightness(1.08)}
+.exp-btn svg{width:13px;height:13px;stroke-width:2}
+
+/* ─────────────────────────────────────
+   DRAG BODY HIGHLIGHT
+───────────────────────────────────── */
+body.body-drag #stage{outline:2px dashed var(--a);outline-offset:-3px}
+</style>
+</head>
+<body>
+
+<!-- ══════════════ TOOLBAR ══════════════ -->
+<div id="toolbar">
+  <div class="logo">Lumi<span class="logo-accent">o</span><span class="logo-tag">beta</span></div>
+  <div class="tdiv"></div>
+
+  <button class="tbtn on" id="tb-select" onclick="setTool('select')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 3l14 9-7 1.5-4 7z"/></svg>Select
+  </button>
+  <button class="tbtn" id="tb-crop" onclick="setTool('crop')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M6 2v14h14M2 6h14"/></svg>Crop
+  </button>
+  <button class="tbtn" id="tb-heal" onclick="setTool('heal')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>Heal
+  </button>
+  <button class="tbtn" id="tb-pick" onclick="setTool('pick')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M2 22l5-5L20 3.5 17 .5 4 14z"/></svg>Pick
+  </button>
+
+  <div class="tdiv"></div>
+
+  <button class="tbtn" onclick="undo()" title="Cmd+Z">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg>Undo
+  </button>
+  <button class="tbtn" onclick="redo()" title="Cmd+Shift+Z">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/></svg>Redo
+  </button>
+
+  <div class="tr">
+    <div class="pill-ai"><div class="pill-ai-dot"></div>Claude AI</div>
+    <div class="tdiv"></div>
+    <button class="tbtn danger" onclick="resetAll()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12a9 9 0 109-9M3 3v5h5"/></svg>Reset
+    </button>
+    <button class="btn-export" onclick="goExport()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Export
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════ MAIN ══════════════ -->
+<div id="main">
+
+  <!-- ═══ LEFT PANEL ═══ -->
+  <div id="lp">
+    <div class="lp-top">
+      <div class="sec-label">Photo</div>
+      <div id="upload-zone" ondragover="onDragOver(event)" ondragleave="onDragLeave()" ondrop="onDropZone(event)">
+        <input type="file" id="uz-file" accept="image/*" onchange="onFileInput(event)"/>
+        <img id="uz-thumb" alt=""/>
+        <div id="uz-inner">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          <p><strong>Drop photo here</strong><br/>or click to browse</p>
+          <p id="uz-sub">JPEG · PNG · WebP · HEIC</p>
+        </div>
+        <button id="uz-change" onclick="event.stopPropagation();document.getElementById('uz-file').click()">Change photo</button>
+      </div>
+    </div>
+
+    <div class="lp-tabs">
+      <button class="lp-tab on" onclick="lpSwitch('hist',this)">History</button>
+      <button class="lp-tab" onclick="lpSwitch('info',this)">Info</button>
+    </div>
+
+    <div class="lp-scroll">
+      <div class="lp-pane on" id="lp-hist">
+        <div class="h-empty" id="h-empty">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 8v4l3 3M3 12a9 9 0 1018 0 9 9 0 00-18 0z"/></svg>
+          Your edits appear here.<br/>Try a prompt below.
+        </div>
+      </div>
+      <div class="lp-pane" id="lp-info">
+        <div class="info-rows" id="info-rows">
+          <div class="h-empty" style="padding:20px 0">Load an image to<br/>see file details.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ CENTRE ═══ -->
+  <div id="centre">
+    <div id="stage" ondragover="onStageDrag(event)" ondragleave="onStageDragLeave()" ondrop="onStageDrop(event)">
+      <div id="stage-bloom"></div>
+
+      <!-- Empty state -->
+      <div id="drop-state">
+        <svg class="ds-icon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width=".8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+        <div class="ds-h">Drop a photo to begin</div>
+        <div class="ds-sub">Or paste from clipboard with <span class="ds-kbd">⌘V</span><br/>Supports JPEG · PNG · WebP · HEIC</div>
+        <div class="ds-or"><span>or</span></div>
+        <button class="ds-upload">
+          <input type="file" accept="image/*" onchange="onFileInput(event)"/>
+          Browse files
+        </button>
+      </div>
+
+      <!-- Canvas -->
+      <div id="cv-wrap" style="display:none">
+        <canvas id="main-cv"></canvas>
+      </div>
+
+      <!-- Processing -->
+      <div id="proc">
+        <div class="proc-ring"></div>
+        <div id="proc-h">Sending to Claude…</div>
+        <div id="proc-s">Parsing your prompt</div>
+        <div class="proc-dots">
+          <div class="proc-dot on" id="pd0"></div>
+          <div class="proc-dot" id="pd1"></div>
+          <div class="proc-dot" id="pd2"></div>
+        </div>
+      </div>
+
+      <!-- Toast -->
+      <div id="toast"><div class="tdot" id="tdot"></div><span id="tmsg">Done</span></div>
+
+      <!-- Zoom -->
+      <div class="fc" id="zoom-fc">
+        <button class="fc-btn" onclick="dz(-0.15)" title="Zoom out">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 12h14"/></svg>
+        </button>
+        <div class="fc-lbl" id="zoom-lbl">100%</div>
+        <button class="fc-btn" onclick="dz(0.15)" title="Zoom in">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <div class="fc-div"></div>
+        <button class="fc-btn" onclick="setZoom(1)" title="Fit to screen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+        </button>
+      </div>
+
+      <!-- Compare -->
+      <div class="fc" id="cmp-fc">
+        <button class="fc-btn" style="width:auto;padding:0 12px;gap:6px;font-size:12px;color:var(--t2);white-space:nowrap"
+          onmousedown="startCmp()" onmouseup="endCmp()" ontouchstart="startCmp()" ontouchend="endCmp()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 3H3v18h6M15 3h6v18h-6M12 3v18"/></svg>
+          Hold to compare
+        </button>
+      </div>
+    </div>
+
+    <!-- ═══ PROMPT BAR ═══ -->
+    <div id="pbar">
+      <div id="chips"></div>
+      <div id="pinput-row">
+        <div id="pbox">
+          <div id="pinner">
+            <div class="picon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+            </div>
+            <input id="pinput" type="text" autocomplete="off" spellcheck="false"
+              placeholder="Describe your edit… e.g. cinematic teal and orange, lift the shadows, make it dreamy"
+              oninput="onPI()" onkeydown="onPK(event)"/>
+            <span id="pcount"></span>
+          </div>
+        </div>
+        <button id="psend" onclick="sendPrompt()" title="Apply (Enter)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+      </div>
+      <div id="phint">
+        <div class="hkv"><span class="kk">Enter</span> apply</div>
+        <span class="hd">·</span>
+        <div class="hkv"><span class="kk">Space</span> compare original</div>
+        <span class="hd">·</span>
+        <div class="hkv"><span class="kk">⌘Z</span> undo</div>
+        <span class="hd">·</span>
+        <div class="hkv"><span class="kk">⌘⇧Z</span> redo</div>
+        <span class="hd">·</span>
+        <div class="hkv" style="color:var(--t3)">Non-destructive</div>
+        <div id="ai-ready" class="on"><div class="ard"></div>Claude ready</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ RIGHT PANEL ═══ -->
+  <div id="rp">
+
+    <!-- Histogram -->
+    <div id="hist-wrap">
+      <canvas id="histogram"></canvas>
+    </div>
+
+    <!-- LIGHT -->
+    <div class="rsec" id="sec-light">
+      <div class="rsec-head" onclick="toggleSec('sec-light')">
+        <span class="rsec-lbl">Light</span>
+        <div class="rsec-right">
+          <button class="rsec-reset" onclick="event.stopPropagation();resetSecKeys(['exposure','brightness','contrast','highlights','shadows','whites','blacks'])">Reset</button>
+          <span class="rsec-caret">▾</span>
+        </div>
+      </div>
+      <div class="rsec-body">
+        <div class="srow"><span class="slbl">Exposure</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-exposure" oninput="onSl('exposure',this)"/><span class="sval" id="sv-exposure" ondblclick="resetAdj('exposure')" title="double-click to reset">0</span></div>
+        <div class="srow"><span class="slbl">Brightness</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-brightness" oninput="onSl('brightness',this)"/><span class="sval" id="sv-brightness" ondblclick="resetAdj('brightness')">0</span></div>
+        <div class="srow"><span class="slbl">Contrast</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-contrast" oninput="onSl('contrast',this)"/><span class="sval" id="sv-contrast" ondblclick="resetAdj('contrast')">0</span></div>
+        <div class="srow"><span class="slbl">Highlights</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-highlights" oninput="onSl('highlights',this)"/><span class="sval" id="sv-highlights" ondblclick="resetAdj('highlights')">0</span></div>
+        <div class="srow"><span class="slbl">Shadows</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-shadows" oninput="onSl('shadows',this)"/><span class="sval" id="sv-shadows" ondblclick="resetAdj('shadows')">0</span></div>
+        <div class="srow"><span class="slbl">Whites</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-whites" oninput="onSl('whites',this)"/><span class="sval" id="sv-whites" ondblclick="resetAdj('whites')">0</span></div>
+        <div class="srow"><span class="slbl">Blacks</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-blacks" oninput="onSl('blacks',this)"/><span class="sval" id="sv-blacks" ondblclick="resetAdj('blacks')">0</span></div>
+      </div>
+    </div>
+
+    <!-- COLOR -->
+    <div class="rsec" id="sec-color">
+      <div class="rsec-head" onclick="toggleSec('sec-color')">
+        <span class="rsec-lbl">Color</span>
+        <div class="rsec-right">
+          <button class="rsec-reset" onclick="event.stopPropagation();resetSecKeys(['temperature','tint','saturation','vibrance','hue'])">Reset</button>
+          <span class="rsec-caret">▾</span>
+        </div>
+      </div>
+      <div class="rsec-body">
+        <div class="srow"><span class="slbl">Temperature</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-temperature" oninput="onSl('temperature',this)"/><span class="sval" id="sv-temperature" ondblclick="resetAdj('temperature')">0</span></div>
+        <div class="srow"><span class="slbl">Tint</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-tint" oninput="onSl('tint',this)"/><span class="sval" id="sv-tint" ondblclick="resetAdj('tint')">0</span></div>
+        <div class="srow"><span class="slbl">Saturation</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-saturation" oninput="onSl('saturation',this)"/><span class="sval" id="sv-saturation" ondblclick="resetAdj('saturation')">0</span></div>
+        <div class="srow"><span class="slbl">Vibrance</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-vibrance" oninput="onSl('vibrance',this)"/><span class="sval" id="sv-vibrance" ondblclick="resetAdj('vibrance')">0</span></div>
+        <div class="srow"><span class="slbl">Hue shift</span><input type="range" class="sli" min="-180" max="180" value="0" id="sl-hue" oninput="onSl('hue',this)"/><span class="sval" id="sv-hue" ondblclick="resetAdj('hue')">0</span></div>
+      </div>
+    </div>
+
+    <!-- HSL -->
+    <div class="rsec" id="sec-hsl">
+      <div class="rsec-head" onclick="toggleSec('sec-hsl')">
+        <span class="rsec-lbl">HSL / Color Mix</span>
+        <span class="rsec-caret">▾</span>
+      </div>
+      <div class="rsec-body">
+        <div class="hsl-row" id="hsl-swatches"></div>
+        <div class="srow"><span class="slbl">Hue</span><input type="range" class="sli" min="-60" max="60" value="0" id="sl-hsl-h" oninput="onHSL('h',this)"/><span class="sval" id="sv-hsl-h">0</span></div>
+        <div class="srow"><span class="slbl">Saturation</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-hsl-s" oninput="onHSL('s',this)"/><span class="sval" id="sv-hsl-s">0</span></div>
+        <div class="srow"><span class="slbl">Luminance</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-hsl-l" oninput="onHSL('l',this)"/><span class="sval" id="sv-hsl-l">0</span></div>
+      </div>
+    </div>
+
+    <!-- DETAIL -->
+    <div class="rsec" id="sec-detail">
+      <div class="rsec-head" onclick="toggleSec('sec-detail')">
+        <span class="rsec-lbl">Detail</span>
+        <div class="rsec-right">
+          <button class="rsec-reset" onclick="event.stopPropagation();resetSecKeys(['sharpness','clarity','dehaze','noise'])">Reset</button>
+          <span class="rsec-caret">▾</span>
+        </div>
+      </div>
+      <div class="rsec-body">
+        <div class="srow"><span class="slbl">Sharpness</span><input type="range" class="sli" min="0" max="100" value="0" id="sl-sharpness" oninput="onSl('sharpness',this)"/><span class="sval" id="sv-sharpness" ondblclick="resetAdj('sharpness')">0</span></div>
+        <div class="srow"><span class="slbl">Clarity</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-clarity" oninput="onSl('clarity',this)"/><span class="sval" id="sv-clarity" ondblclick="resetAdj('clarity')">0</span></div>
+        <div class="srow"><span class="slbl">Dehaze</span><input type="range" class="sli" min="-100" max="100" value="0" id="sl-dehaze" oninput="onSl('dehaze',this)"/><span class="sval" id="sv-dehaze" ondblclick="resetAdj('dehaze')">0</span></div>
+        <div class="srow"><span class="slbl">Noise red.</span><input type="range" class="sli" min="0" max="100" value="0" id="sl-noise" oninput="onSl('noise',this)"/><span class="sval" id="sv-noise" ondblclick="resetAdj('noise')">0</span></div>
+      </div>
+    </div>
+
+    <!-- EFFECTS -->
+    <div class="rsec" id="sec-effects">
+      <div class="rsec-head" onclick="toggleSec('sec-effects')">
+        <span class="rsec-lbl">Effects</span>
+        <div class="rsec-right">
+          <button class="rsec-reset" onclick="event.stopPropagation();resetSecKeys(['vignette','grain','fade','glow'])">Reset</button>
+          <span class="rsec-caret">▾</span>
+        </div>
+      </div>
+      <div class="rsec-body">
+        <div class="srow"><span class="slbl">Vignette</span><input type="range" class="sli" min="-100" max="0" value="0" id="sl-vignette" oninput="onSl('vignette',this)"/><span class="sval" id="sv-vignette" ondblclick="resetAdj('vignette')">0</span></div>
+        <div class="srow"><span class="slbl">Grain</span><input type="range" class="sli" min="0" max="100" value="0" id="sl-grain" oninput="onSl('grain',this)"/><span class="sval" id="sv-grain" ondblclick="resetAdj('grain')">0</span></div>
+        <div class="srow"><span class="slbl">Fade</span><input type="range" class="sli" min="0" max="100" value="0" id="sl-fade" oninput="onSl('fade',this)"/><span class="sval" id="sv-fade" ondblclick="resetAdj('fade')">0</span></div>
+        <div class="srow"><span class="slbl">Glow</span><input type="range" class="sli" min="0" max="100" value="0" id="sl-glow" oninput="onSl('glow',this)"/><span class="sval" id="sv-glow" ondblclick="resetAdj('glow')">0</span></div>
+      </div>
+    </div>
+
+    <!-- PRESETS -->
+    <div class="rsec" id="sec-presets">
+      <div class="rsec-head" onclick="toggleSec('sec-presets')">
+        <span class="rsec-lbl">Presets</span>
+        <span class="rsec-caret">▾</span>
+      </div>
+      <div class="rsec-body">
+        <div class="pgrid" id="pgrid"></div>
+      </div>
+    </div>
+
+    <!-- EXPORT -->
+    <div class="rsec" id="sec-export">
+      <div class="rsec-head" onclick="toggleSec('sec-export')">
+        <span class="rsec-lbl">Export</span>
+        <span class="rsec-caret">▾</span>
+      </div>
+      <div class="rsec-body">
+        <div class="exp-fmts">
+          <div class="exp-fmt on" onclick="selFmt('jpeg',this)"><div class="exp-fmt-name">JPEG</div><div class="exp-fmt-sub">Smaller file</div></div>
+          <div class="exp-fmt" onclick="selFmt('png',this)"><div class="exp-fmt-name">PNG</div><div class="exp-fmt-sub">Lossless</div></div>
+          <div class="exp-fmt" onclick="selFmt('webp',this)"><div class="exp-fmt-name">WebP</div><div class="exp-fmt-sub">Best ratio</div></div>
+        </div>
+        <div class="exp-qual">
+          <span class="slbl" style="width:auto;white-space:nowrap">Quality</span>
+          <input type="range" class="sli" min="60" max="100" value="92" id="exp-q" oninput="document.getElementById('exp-qv').textContent=this.value+'%';setFill(this)"/>
+          <span class="sval" id="exp-qv" style="width:36px">92%</span>
+        </div>
+        <button class="exp-btn" onclick="doExport()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          Download image
+        </button>
+      </div>
+    </div>
+
+  </div><!-- /rp -->
+</div><!-- /main -->
+
+<script>
+/* ════════════════════════════════════════
+   APP STATE
+════════════════════════════════════════ */
+let origSrc=null,imgEl=null,zoom=1,tool='select';
+let comparing=false,hist=[],hIdx=-1,edits=0,fmt='jpeg';
+let activeHSL=0;
+
+const A={
+  exposure:0,brightness:0,contrast:0,highlights:0,shadows:0,whites:0,blacks:0,
+  temperature:0,tint:0,saturation:0,vibrance:0,hue:0,
+  sharpness:0,clarity:0,dehaze:0,noise:0,
+  vignette:0,grain:0,fade:0,glow:0
+};
+const HSL_NAMES=['Red','Orange','Yellow','Green','Cyan','Blue'];
+const hslA={};
+HSL_NAMES.forEach(n=>hslA[n]={h:0,s:0,l:0});
+
+/* ════════════════════════════════════════
+   PRESETS
+════════════════════════════════════════ */
+const PRESETS=[
+  {n:'Original',  f:{}},
+  {n:'Vivid',     f:{saturation:44,vibrance:30,contrast:18,clarity:12}},
+  {n:'Matte',     f:{contrast:-24,brightness:10,saturation:-20,fade:28}},
+  {n:'Cinema',    f:{contrast:28,temperature:-20,saturation:18,vignette:-42,clarity:14}},
+  {n:'Golden',    f:{temperature:42,brightness:8,saturation:24,vibrance:14}},
+  {n:'Moody',     f:{exposure:-14,contrast:32,saturation:-24,vignette:-52,shadows:-12}},
+  {n:'Faded',     f:{contrast:-28,brightness:16,saturation:-28,fade:36}},
+  {n:'Chrome',    f:{saturation:-100,contrast:12,clarity:8}},
+  {n:'Velvia',    f:{saturation:58,contrast:22,vibrance:18,sharpness:28}},
+  {n:'Kodak',     f:{temperature:18,saturation:16,contrast:10,highlights:-12,fade:10}},
+  {n:'Teal+Or',   f:{temperature:-16,tint:-10,saturation:24,contrast:18}},
+  {n:'Dreamy',    f:{brightness:14,saturation:-8,glow:42,clarity:-18,fade:22}},
+];
+
+/* ════════════════════════════════════════
+   CHIPS
+════════════════════════════════════════ */
+const CHIPS=[
+  {l:'☀️ Brighter',   t:'Make it brighter'},
+  {l:'◑ Contrast',    t:'Boost the contrast'},
+  {l:'🌅 Warm',       t:'Warm golden tones'},
+  {l:'❄️ Cool',       t:'Cool blue tones'},
+  {l:'◈ Sharpen',    t:'Sharpen the details'},
+  {l:'◐ B&W',        t:'Black and white'},
+  {l:'🎬 Cinema',    t:'Cinematic look'},
+  {l:'🎨 Vivid',     t:'Vibrant saturated colors'},
+  {l:'🌫 Dehaze',    t:'Remove the haze'},
+  {l:'✦ Dreamy',     t:'Dreamy soft glow'},
+  {l:'📷 Film',      t:'Kodak film look'},
+  {l:'🌙 Moody',     t:'Dark and moody'},
+];
+
+/* ════════════════════════════════════════
+   CLAUDE AI SYSTEM PROMPT
+   This is what teaches Claude to think
+   like a photo editor's AI planner
+════════════════════════════════════════ */
+const SYS=`You are the AI engine of Lumio, a professional photo editor.
+A user will describe a photo edit in natural language. You translate it into pixel adjustments.
+
+ADJUSTMENT KEYS AND RANGES:
+exposure: -100 to 100        (EV-based, like camera stops)
+brightness: -100 to 100      (overall lightness)
+contrast: -100 to 100        (tonal range spread)
+highlights: -100 to 100      (negative = recover blown highlights)
+shadows: -100 to 100         (positive = lift dark areas)
+whites: -100 to 100          (clip point for whites)
+blacks: -100 to 100          (clip point for blacks)
+temperature: -100 to 100     (-100=cool/blue, +100=warm/orange)
+tint: -100 to 100            (-100=green shift, +100=magenta shift)
+saturation: -100 to 100      (overall color intensity, -100=grayscale)
+vibrance: -100 to 100        (smart saturation, protects skin tones)
+hue: -180 to 180             (global hue rotation in degrees)
+sharpness: 0 to 100          (unsharp mask strength)
+clarity: -100 to 100         (local contrast/microcontrast, negative=dreamy)
+dehaze: -100 to 100          (removes/adds atmospheric haze)
+noise: 0 to 100              (noise reduction via blur)
+vignette: -100 to 0          (ALWAYS negative — darkens edges)
+grain: 0 to 100              (film grain texture)
+fade: 0 to 100               (lifts blacks for matte/film base)
+glow: 0 to 100               (soft bloom on bright areas)
+
+RULES:
+1. Return ONLY raw JSON. No markdown fences, no explanation, no commentary.
+2. Include ONLY keys that should change. Omit keys that stay 0.
+3. Values are DELTA — how much to shift from current. Be cumulative-aware.
+4. Intensity modifiers: "slightly/a bit/barely" = multiply by 0.35. "very/extremely/heavily" = multiply by 1.65.
+5. If the request cannot be mapped (e.g. "remove the background", "add text") return {"_unsupported":true}.
+6. Interpret intent, not just words. "Moody" implies multiple adjustments. "Like a film" implies grain+fade+desaturate.
+7. Combine adjustments intelligently. "Cinematic" = contrast+slight cool+saturation+vignette.
+
+EXAMPLES:
+"make it warmer" → {"temperature":35}
+"dramatic black and white" → {"saturation":-100,"contrast":32,"clarity":20,"vignette":-28}
+"slightly brighter with a bit more pop" → {"brightness":18,"contrast":12,"vibrance":12}
+"teal and orange movie grade" → {"temperature":-18,"tint":-10,"saturation":22,"contrast":18}
+"kodak film look" → {"fade":26,"grain":20,"saturation":-15,"contrast":-8,"temperature":14}
+"very dark and moody" → {"exposure":-22,"contrast":48,"saturation":-32,"vignette":-55,"shadows":-18}
+"dreamy and soft" → {"glow":40,"clarity":-22,"brightness":10,"saturation":-8,"fade":18}
+"remove haze and make colors pop" → {"dehaze":48,"contrast":16,"saturation":20,"vibrance":14}
+"lift the shadows without touching the rest" → {"shadows":38}
+"cinematic look, slightly cool" → {"contrast":25,"temperature":-14,"saturation":16,"vignette":-36,"clarity":12}`;
+
+/* ════════════════════════════════════════
+   FALLBACK PARSER
+   Used when API is unavailable —
+   keeps the app functional offline
+════════════════════════════════════════ */
+const FB=[
+  {p:['bright','lighten','lighter'],            a:{brightness:28,exposure:10}},
+  {p:['dark','darken','darker','moody'],         a:{brightness:-24,exposure:-12}},
+  {p:['contrast','punch','pop'],                 a:{contrast:32,clarity:10}},
+  {p:['warm','golden','sunset','orange'],        a:{temperature:38}},
+  {p:['cool','cold','blue','winter'],            a:{temperature:-38}},
+  {p:['vivid','vibrant','saturated','colorful'], a:{saturation:42,vibrance:24}},
+  {p:['black and white','b&w','bw','grayscale','monochrome'],a:{saturation:-100}},
+  {p:['sharpen','sharp','crisp','detail'],       a:{sharpness:55,clarity:18}},
+  {p:['soft','dreamy','dream','glow'],           a:{glow:42,clarity:-20,brightness:8,fade:18}},
+  {p:['vignette','darken edges'],                a:{vignette:-55}},
+  {p:['cinematic','cinema','film look','movie'], a:{contrast:26,temperature:-18,saturation:18,vignette:-38,clarity:12}},
+  {p:['vintage','retro','film grain'],           a:{saturation:-20,contrast:-15,temperature:20,grain:28,fade:20}},
+  {p:['dramatic','hdr','epic','intense'],        a:{contrast:38,clarity:42,saturation:20,dehaze:28}},
+  {p:['dehaze','haze','fog','mist'],             a:{dehaze:50,contrast:14}},
+  {p:['matte','faded','fade'],                   a:{fade:38,saturation:-20,contrast:-22}},
+  {p:['teal and orange','teal+orange'],          a:{temperature:-16,tint:-10,saturation:22,contrast:18}},
+  {p:['lift shadow','open shadow'],              a:{shadows:38}},
+  {p:['recover highlight'],                      a:{highlights:-40}},
+  {p:['denoise','reduce noise','clean'],         a:{noise:62}},
+  {p:['kodak','kodachrome'],                     a:{fade:26,grain:20,saturation:-15,contrast:-8,temperature:14}},
+];
+
+function fallback(txt){
+  const lo=txt.toLowerCase();
+  let r={},hit=false;
+  for(const row of FB){
+    for(const p of row.p){
+      if(lo.includes(p)){Object.assign(r,row.a);hit=true;break}
+    }
+  }
+  if(!hit)return{_unsupported:true};
+  const strong=/\b(very|extremely|super|heavily|really|a lot)\b/i.test(lo);
+  const light=/\b(slightly|a bit|subtle|barely|gently|just a)\b/i.test(lo);
+  const f=strong?1.65:light?0.35:1;
+  for(const k in r)r[k]=Math.round(r[k]*f);
+  return r;
+}
+
+/* ════════════════════════════════════════
+   CLAUDE API CALL
+   Real call to claude-sonnet-4-6.
+   Falls back gracefully if unavailable.
+════════════════════════════════════════ */
+async function callClaude(prompt){
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-6',
+        max_tokens:300,
+        system:SYS,
+        messages:[{role:'user',content:prompt}]
+      })
+    });
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const d=await res.json();
+    const raw=(d.content?.[0]?.text||'').replace(/```[\w]*\n?/g,'').replace(/```/g,'').trim();
+    return JSON.parse(raw);
+  }catch(e){
+    console.warn('[Lumio] Claude API unavailable, using fallback parser.',e.message);
+    return fallback(prompt);
+  }
+}
+
+/* ════════════════════════════════════════
+   INIT
+════════════════════════════════════════ */
+(function init(){
+  // Chips
+  document.getElementById('chips').innerHTML=
+    CHIPS.map(c=>`<button class="chip" onclick="useChip(this,'${c.t}')">${c.l}</button>`).join('');
+
+  // Preset grid
+  document.getElementById('pgrid').innerHTML=
+    PRESETS.map((p,i)=>`
+      <div class="ptile ${i===0?'on':''}" id="pt-${i}" onclick="applyPreset(${i})" title="${p.n}">
+        <canvas id="pc-${i}"></canvas>
+        <div class="ptile-lbl">${p.n}</div>
+      </div>`).join('');
+
+  // HSL swatches
+  const HSL_COLORS=[
+    {n:'Red',   bg:'hsl(0,72%,48%)'},
+    {n:'Orange',bg:'hsl(28,82%,52%)'},
+    {n:'Yellow',bg:'hsl(52,90%,46%)'},
+    {n:'Green', bg:'hsl(138,62%,40%)'},
+    {n:'Cyan',  bg:'hsl(195,78%,44%)'},
+    {n:'Blue',  bg:'hsl(228,72%,52%)'},
+  ];
+  document.getElementById('hsl-swatches').innerHTML=
+    HSL_COLORS.map((c,i)=>
+      `<div class="hsl-sw ${i===0?'on':''}" style="background:${c.bg}" title="${c.n}" onclick="selHSL(${i},this)"></div>`
+    ).join('');
+
+  updateAllFills();
+})();
+
+/* ════════════════════════════════════════
+   FILE LOADING
+════════════════════════════════════════ */
+function onFileInput(e){const f=e.target.files?.[0];if(f)loadFile(f);}
+
+function onDragOver(e){e.preventDefault();document.getElementById('upload-zone').classList.add('drag');}
+function onDragLeave(){document.getElementById('upload-zone').classList.remove('drag');}
+function onDropZone(e){e.preventDefault();document.getElementById('upload-zone').classList.remove('drag');const f=e.dataTransfer?.files?.[0];if(f)loadFile(f);}
+
+function onStageDrag(e){e.preventDefault();document.body.classList.add('body-drag');}
+function onStageDragLeave(){document.body.classList.remove('body-drag');}
+function onStageDrop(e){e.preventDefault();document.body.classList.remove('body-drag');const f=e.dataTransfer?.files?.[0];if(f)loadFile(f);}
+
+function loadFile(file){
+  if(!file.type.startsWith('image/'))return showToast('Please upload an image file',true);
+  const url=URL.createObjectURL(file);
+  const img=new Image();
+  img.onload=()=>{
+    if(imgEl&&origSrc)URL.revokeObjectURL(origSrc);
+    imgEl=img; origSrc=url;
+    clearState();
+    renderCanvas();
+
+    // Show canvas, hide empty state
+    document.getElementById('drop-state').classList.add('gone');
+    document.getElementById('cv-wrap').style.display='block';
+    document.getElementById('zoom-fc').classList.add('on');
+    document.getElementById('cmp-fc').classList.add('on');
+
+    // Upload zone thumb
+    const th=document.getElementById('uz-thumb');
+    th.src=url; th.style.display='block';
+    document.getElementById('uz-inner').style.display='none';
+    document.getElementById('uz-change').style.display='block';
+
+    // Info tab
+    buildInfo(file);
+
+    // Preset previews
+    buildPresetPreviews();
+
+    // Start history
+    pushHist('Original');
+
+    showToast('Photo loaded — describe an edit below ✦');
+  };
+  img.onerror=()=>showToast('Could not load this image',true);
+  img.src=url;
+}
+
+function clearState(){
+  for(const k in A)A[k]=0;
+  HSL_NAMES.forEach(n=>hslA[n]={h:0,s:0,l:0});
+  hist=[]; hIdx=-1; edits=0;
+  syncSliders();
+  document.querySelectorAll('.ptile').forEach((p,i)=>p.classList.toggle('on',i===0));
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('applied'));
+  renderHistPanel();
+}
+
+function buildInfo(file){
+  document.getElementById('info-rows').innerHTML=`
+    <div class="irow"><span class="ik">Filename</span><span class="iv">${trunc(file.name,17)}</span></div>
+    <div class="irow"><span class="ik">Dimensions</span><span class="iv">${imgEl.naturalWidth} × ${imgEl.naturalHeight}</span></div>
+    <div class="irow"><span class="ik">File size</span><span class="iv">${fmtSz(file.size)}</span></div>
+    <div class="irow"><span class="ik">Megapixels</span><span class="iv">${(imgEl.naturalWidth*imgEl.naturalHeight/1e6).toFixed(1)} MP</span></div>
+    <div class="irow"><span class="ik">Aspect ratio</span><span class="iv">${aspectRatio(imgEl.naturalWidth,imgEl.naturalHeight)}</span></div>
+    <div class="irow"><span class="ik">Edits applied</span><span class="iv" id="edit-count">0</span></div>
+  `;
+}
+
+/* ════════════════════════════════════════
+   CANVAS RENDER ENGINE
+   Pure pixel manipulation — no CSS filters.
+   Architecture B: direct pixel math in JS
+   (mirrors what OpenCV/libvips would do)
+════════════════════════════════════════ */
+let rafPending=false;
+function schedRender(){if(!rafPending){rafPending=true;requestAnimationFrame(()=>{rafPending=false;renderCanvas();});}}
+
+function renderCanvas(){
+  if(!origSrc||!imgEl)return;
+  const cv=document.getElementById('main-cv');
+  const stage=document.getElementById('stage');
+  const maxW=stage.clientWidth-80, maxH=stage.clientHeight-60;
+  const sc=Math.min(maxW/imgEl.naturalWidth,maxH/imgEl.naturalHeight,1);
+  const W=imgEl.naturalWidth, H=imgEl.naturalHeight;
+  cv.width=W; cv.height=H;
+  cv.style.width=Math.round(W*sc*zoom)+'px';
+  cv.style.height=Math.round(H*sc*zoom)+'px';
+  const ctx=cv.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(imgEl,0,0);
+  pixelPipeline(ctx,W,H);
+  document.getElementById('zoom-lbl').textContent=Math.round(zoom*100)+'%';
+  drawHistogram(ctx,W,H);
+}
+
+function clamp(v){return v<0?0:v>255?255:v|0}
+
+/* The core pixel pipeline — every adjustment runs here.
+   This is equivalent to what libvips / OpenCV does server-side.
+   For production you'd offload this to a Python backend. */
+function pixelPipeline(ctx,W,H){
+  const a=A;
+  const id=ctx.getImageData(0,0,W,H);const d=id.data;
+
+  // Pre-compute factors once
+  const expF=Math.pow(2,(a.exposure/100)*2.2);
+  const brt=a.brightness/100*85;
+  const conF=1+(a.contrast/100)*1.85;
+  const tmp=a.temperature/100;
+  const tnt=a.tint/100;
+  const satF=1+a.saturation/100;
+  const vibF=a.vibrance/100;
+  const wh=a.whites/100;
+  const bl=a.blacks/100;
+  const hi=a.highlights/100;
+  const sh=a.shadows/100;
+  const cla=a.clarity/100;
+  const deh=a.dehaze/100;
+  const fadeF=a.fade/100;
+  const glwF=a.glow/100;
+  const hRad=a.hue/180*Math.PI;
+
+  for(let i=0;i<d.length;i+=4){
+    let r=d[i],g=d[i+1],b=d[i+2];
+
+    // 1. Exposure (EV-based multiplication)
+    r*=expF; g*=expF; b*=expF;
+
+    // 2. Brightness (additive)
+    r+=brt; g+=brt; b+=brt;
+
+    // 3. Contrast (S-curve around midpoint)
+    r=(r-128)*conF+128;
+    g=(g-128)*conF+128;
+    b=(b-128)*conF+128;
+
+    // 4. Whites (lift near-white pixels)
+    if(wh>0){r+=(255-r)*wh*.72;g+=(255-g)*wh*.72;b+=(255-b)*wh*.72;}
+
+    // 5. Blacks (crush near-black pixels)
+    if(bl>0){r*=(1-bl*.62);g*=(1-bl*.62);b*=(1-bl*.62);}
+
+    // 6. Highlights & shadows (luminosity-aware)
+    const lum=.299*r+.587*g+.114*b;
+    if(hi<0&&lum>150){const f=Math.pow((lum-150)/105,1.1);r+=hi*74*f;g+=hi*74*f;b+=hi*74*f;}
+    if(hi>0&&lum>200){const f=(lum-200)/55;r+=hi*42*f;g+=hi*42*f;b+=hi*42*f;}
+    if(sh>0&&lum<90){const f=Math.pow((90-lum)/90,1.1);r+=sh*74*f;g+=sh*74*f;b+=sh*74*f;}
+    if(sh<0&&lum<60){const f=(60-lum)/60;r+=sh*50*f;g+=sh*50*f;b+=sh*50*f;}
+
+    // 7. Temperature (blue–orange axis)
+    r+=tmp*48; b-=tmp*48;
+
+    // 8. Tint (green–magenta axis)
+    g+=tnt*24;
+
+    // 9. Global hue rotation (RGB→HSL→rotate→RGB)
+    if(a.hue!==0){
+      const rn=r/255,gn=g/255,bn=b/255;
+      const mx=Math.max(rn,gn,bn),mn=Math.min(rn,gn,bn),dl=mx-mn;
+      if(dl>.001){
+        let H2=0;
+        if(mx===rn)H2=((gn-bn)/dl)%6;
+        else if(mx===gn)H2=(bn-rn)/dl+2;
+        else H2=(rn-gn)/dl+4;
+        H2=H2*Math.PI/3+hRad;
+        const L=(mx+mn)/2, S=dl/(1-Math.abs(2*L-1));
+        const C=(1-Math.abs(2*L-1))*S;
+        const X=C*(1-Math.abs(((H2/(Math.PI/3))%2)-1)), m=L-C/2;
+        const seg=((Math.floor(H2/(Math.PI/3))%6)+6)%6;
+        const T=[[C,X,0],[X,C,0],[0,C,X],[0,X,C],[X,0,C],[C,0,X]][seg];
+        r=(T[0]+m)*255;g=(T[1]+m)*255;b=(T[2]+m)*255;
+      }
+    }
+
+    // 10. Saturation
+    const gr=.299*r+.587*g+.114*b;
+    r=gr+(r-gr)*satF; g=gr+(g-gr)*satF; b=gr+(b-gr)*satF;
+
+    // 11. Vibrance (smart saturation — protects skin)
+    if(vibF!==0){
+      const av=(r+g+b)/3,mx2=Math.max(r,g,b);
+      const vf=vibF*(1-(mx2-av)/140)*.82;
+      const grv=.299*r+.587*g+.114*b;
+      r=grv+(r-grv)*(1+vf);g=grv+(g-grv)*(1+vf);b=grv+(b-grv)*(1+vf);
+    }
+
+    // 12. Clarity (local contrast — micro-structure)
+    if(cla>0){const cl=.299*r+.587*g+.114*b;r+=(cl-128)*cla*.52;g+=(cl-128)*cla*.52;b+=(cl-128)*cla*.52;}
+    if(cla<0){const cl=.299*r+.587*g+.114*b;r+=cla*.42*(r-cl);g+=cla*.42*(g-cl);b+=cla*.42*(b-cl);}
+
+    // 13. Dehaze (contrast lift for low-lum areas)
+    if(deh>0){
+      r+=deh*30*(1-r/255);g+=deh*30*(1-g/255);b+=deh*30*(1-b/255);
+      const cl=.299*r+.587*g+.114*b;
+      r=(r-cl)*(1+deh*.55)+cl;g=(g-cl)*(1+deh*.55)+cl;b=(b-cl)*(1+deh*.55)+cl;
+    }
+
+    // 14. Fade (matte/film base — lifts blacks)
+    if(fadeF>0){r=r*(1-fadeF*.52)+fadeF*36;g=g*(1-fadeF*.52)+fadeF*36;b=b*(1-fadeF*.52)+fadeF*36;}
+
+    // 15. Glow (soft bloom in highlights)
+    if(glwF>0){const l2=.299*r+.587*g+.114*b;if(l2>105){const f=(l2-105)/150;r+=glwF*f*52;g+=glwF*f*52;b+=glwF*f*52;}}
+
+    d[i]=clamp(r);d[i+1]=clamp(g);d[i+2]=clamp(b);
+  }
+  ctx.putImageData(id,0,0);
+
+  // Post-process passes
+  if(a.sharpness>0) applySharp(ctx,W,H,a.sharpness/100);
+  if(a.noise>0)     applyBlur(ctx,W,H,Math.ceil(a.noise/55));
+  if(a.grain>0)     applyGrain(ctx,W,H,a.grain/100);
+  if(a.vignette<0)  applyVignette(ctx,W,H,a.vignette/100);
+}
+
+/* Unsharp mask — sharpens by boosting high-frequency detail */
+function applySharp(ctx,W,H,str){
+  const K=[0,-1,0,-1,5,-1,0,-1,0];
+  const src=ctx.getImageData(0,0,W,H),dst=ctx.createImageData(W,H);
+  const s=src.data,d=dst.data,f=str*.92;
+  for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){
+    const i=(y*W+x)*4;
+    for(let c=0;c<3;c++){
+      let sum=0;
+      for(let ky=-1;ky<=1;ky++)for(let kx=-1;kx<=1;kx++)sum+=s[((y+ky)*W+(x+kx))*4+c]*K[(ky+1)*3+(kx+1)];
+      d[i+c]=clamp(s[i+c]+(sum-s[i+c])*f);
+    }
+    d[i+3]=s[i+3];
+  }
+  // Copy border pixels
+  for(let x=0;x<W;x++){const p=x*4;for(let c=0;c<4;c++){d[p+c]=s[p+c];const q=((H-1)*W+x)*4;d[q+c]=s[q+c];}}
+  for(let y=0;y<H;y++){const p=y*W*4;for(let c=0;c<4;c++){d[p+c]=s[p+c];const q=(y*W+W-1)*4;d[q+c]=s[q+c];}}
+  ctx.putImageData(dst,0,0);
+}
+
+/* Box blur — used for noise reduction */
+function applyBlur(ctx,W,H,r){
+  if(r<1)return;
+  for(let p=0;p<2;p++){
+    const src=ctx.getImageData(0,0,W,H),dst=ctx.createImageData(W,H);
+    const s=src.data,d=dst.data;
+    for(let y=r;y<H-r;y++)for(let x=r;x<W-r;x++){
+      let sr=0,sg=0,sb=0,cnt=0;
+      for(let ky=-r;ky<=r;ky++)for(let kx=-r;kx<=r;kx++){const j=((y+ky)*W+(x+kx))*4;sr+=s[j];sg+=s[j+1];sb+=s[j+2];cnt++;}
+      const i=(y*W+x)*4;d[i]=sr/cnt|0;d[i+1]=sg/cnt|0;d[i+2]=sb/cnt|0;d[i+3]=s[i+3];
+    }
+    ctx.putImageData(dst,0,0);
+  }
+}
+
+/* Film grain — Gaussian-ish noise */
+function applyGrain(ctx,W,H,str){
+  const id=ctx.getImageData(0,0,W,H),d=id.data,amt=str*30;
+  for(let i=0;i<d.length;i+=4){const n=(Math.random()-.5)*amt*2;d[i]=clamp(d[i]+n);d[i+1]=clamp(d[i+1]+n);d[i+2]=clamp(d[i+2]+n);}
+  ctx.putImageData(id,0,0);
+}
+
+/* Vignette — radial gradient darkening edges */
+function applyVignette(ctx,W,H,str){
+  const g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*.2,W/2,H/2,Math.max(W,H)*.82);
+  g.addColorStop(0,'rgba(0,0,0,0)');
+  g.addColorStop(1,`rgba(0,0,0,${Math.abs(str)*.93})`);
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+}
+
+/* ════════════════════════════════════════
+   HISTOGRAM
+   Draws RGB channel density curves
+════════════════════════════════════════ */
+function drawHistogram(ctx,W,H){
+  const hcv=document.getElementById('histogram');
+  const hw=hcv.parentElement.clientWidth-24;
+  hcv.width=hw; hcv.height=50;
+  const hx=hcv.getContext('2d');
+  hx.clearRect(0,0,hw,50);
+
+  // Sample a downscaled region for speed
+  const sw=Math.min(W,300),sh=Math.min(H,225);
+  const src=ctx.getImageData(0,0,sw,sh);
+  const d=src.data;
+  const R=new Float32Array(256),G=new Float32Array(256),B=new Float32Array(256);
+  for(let i=0;i<d.length;i+=4){R[d[i]]++;G[d[i+1]]++;B[d[i+2]]++;}
+  const mx=Math.max(...R,...G,...B)||1;
+
+  const drawCh=(ch,col)=>{
+    hx.beginPath();hx.moveTo(0,50);
+    for(let i=0;i<256;i++){const x=i/255*hw,y=50-(ch[i]/mx)*48;i===0?hx.moveTo(x,y):hx.lineTo(x,y);}
+    hx.lineTo(hw,50);hx.closePath();hx.fillStyle=col;hx.fill();
+  };
+  drawCh(R,'rgba(255,80,80,0.44)');
+  drawCh(G,'rgba(60,210,100,0.44)');
+  drawCh(B,'rgba(90,140,255,0.44)');
+}
+
+/* ════════════════════════════════════════
+   PROMPT SUBMISSION — THE CORE FEATURE
+   1. Call Claude API with detailed system prompt
+   2. Parse JSON delta adjustments
+   3. Apply to pixel pipeline
+   4. Store in non-destructive history
+════════════════════════════════════════ */
+async function sendPrompt(){
+  const field=document.getElementById('pinput');
+  const txt=field.value.trim();
+  if(!txt)return;
+  if(!origSrc)return showToast('Upload a photo first',true);
+
+  field.value='';
+  document.getElementById('psend').classList.remove('on');
+  document.getElementById('pcount').textContent='';
+
+  setProc(true,'Claude is reading your prompt…','Sending to AI · claude-sonnet-4-6',0);
+
+  let parsed;
+  try{parsed=await callClaude(txt);}
+  catch(e){parsed={_unsupported:true};}
+
+  if(parsed._unsupported){
+    setProc(false);
+    return showToast('Can\'t map that yet — try: "warmer", "cinematic", "lift shadows"',true);
+  }
+
+  setProc(true,'Mapping to adjustments…','Building pixel operation list',1);
+  await sleep(160);
+  setProc(true,'Rendering on canvas…','Processing '+imgEl.naturalWidth+'×'+imgEl.naturalHeight+' pixels',2);
+  await sleep(140);
+
+  const applied=[];
+  for(const[k,v] of Object.entries(parsed)){
+    if(k in A){
+      A[k]=Math.max(-100,Math.min(100,A[k]+Math.round(v)));
+      applied.push(k);
+    }
+  }
+
+  syncSliders();
+  renderCanvas();
+  pushHist(txt);
+  setProc(false);
+
+  // Mark chips
+  document.querySelectorAll('.chip').forEach(c=>{
+    const ct=c.textContent.replace(/[^\w]/g,'').toLowerCase().slice(0,5);
+    if(txt.toLowerCase().includes(ct))c.classList.add('applied');
+  });
+
+  showToast(applied.length
+    ?`Applied: ${applied.slice(0,4).join(', ')}${applied.length>4?'…':''}`
+    :'No adjustments made');
+}
+
+/* ════════════════════════════════════════
+   SLIDERS
+════════════════════════════════════════ */
+function onSl(key,el){
+  A[key]=parseInt(el.value);
+  document.getElementById('sv-'+key).textContent=el.value;
+  setFill(el);
+  if(origSrc){schedRender();schedSlSnap(key,el.value);}
+}
+
+let slSnapTmr=null;
+function schedSlSnap(k,v){clearTimeout(slSnapTmr);slSnapTmr=setTimeout(()=>{if(origSrc)pushHist(k+' → '+v);},820);}
+
+function onHSL(prop,el){
+  const c=HSL_NAMES[activeHSL];
+  hslA[c][prop]=parseInt(el.value);
+  document.getElementById('sv-hsl-'+prop).textContent=el.value;
+  setFill(el);
+  if(origSrc)schedRender();
+}
+
+function selHSL(idx,el){
+  activeHSL=idx;
+  document.querySelectorAll('.hsl-sw').forEach(s=>s.classList.remove('on'));
+  el.classList.add('on');
+  const d=hslA[HSL_NAMES[idx]];
+  ['h','s','l'].forEach(p=>{
+    document.getElementById('sl-hsl-'+p).value=d[p];
+    document.getElementById('sv-hsl-'+p).textContent=d[p];
+    setFill(document.getElementById('sl-hsl-'+p));
+  });
+}
+
+function resetAdj(key){
+  A[key]=0;
+  const sl=document.getElementById('sl-'+key),sv=document.getElementById('sv-'+key);
+  if(sl){sl.value=0;setFill(sl);}
+  if(sv)sv.textContent='0';
+  if(origSrc){schedRender();pushHist('Reset '+key);}
+}
+
+function resetSecKeys(keys){
+  keys.forEach(k=>resetAdj(k));
+  if(origSrc){renderCanvas();pushHist('Reset section');}
+}
+
+function syncSliders(){
+  for(const[k,v] of Object.entries(A)){
+    const sl=document.getElementById('sl-'+k),sv=document.getElementById('sv-'+k);
+    if(sl){sl.value=v;setFill(sl);}
+    if(sv)sv.textContent=v;
+  }
+}
+
+function setFill(el){
+  const mn=parseFloat(el.min||0),mx=parseFloat(el.max||100),v=parseFloat(el.value);
+  el.style.setProperty('--fp',((v-mn)/(mx-mn)*100)+'%');
+}
+function updateAllFills(){document.querySelectorAll('.sli').forEach(setFill);}
+
+/* ════════════════════════════════════════
+   PRESETS
+════════════════════════════════════════ */
+function applyPreset(idx){
+  if(!origSrc)return;
+  document.querySelectorAll('.ptile').forEach((p,i)=>p.classList.toggle('on',i===idx));
+  for(const k in A)A[k]=0;
+  for(const[k,v] of Object.entries(PRESETS[idx].f))if(k in A)A[k]=v;
+  syncSliders();renderCanvas();
+  pushHist('Preset: '+PRESETS[idx].n);
+  showToast('Preset: '+PRESETS[idx].n);
+}
+
+function buildPresetPreviews(){
+  if(!imgEl)return;
+  PRESETS.forEach((p,i)=>{
+    const cv=document.getElementById('pc-'+i);if(!cv)return;
+    cv.width=58;cv.height=58;
+    const ctx=cv.getContext('2d',{willReadFrequently:true});
+    const sc=Math.min(58/imgEl.naturalWidth,58/imgEl.naturalHeight);
+    ctx.fillStyle='#111';ctx.fillRect(0,0,58,58);
+    ctx.drawImage(imgEl,(58-imgEl.naturalWidth*sc)/2,(58-imgEl.naturalHeight*sc)/2,imgEl.naturalWidth*sc,imgEl.naturalHeight*sc);
+    const saved={...A};
+    for(const k in A)A[k]=0;
+    for(const[k,v] of Object.entries(p.f))if(k in A)A[k]=v;
+    pixelPipeline(ctx,58,58);
+    for(const k in A)A[k]=saved[k];
+  });
+}
+
+/* ════════════════════════════════════════
+   NON-DESTRUCTIVE HISTORY
+════════════════════════════════════════ */
+function pushHist(label){
+  hist=hist.slice(0,hIdx+1);
+  hist.push({label,A:{...A},hsl:JSON.parse(JSON.stringify(hslA))});
+  hIdx=hist.length-1;
+  edits++;
+  const ec=document.getElementById('edit-count');if(ec)ec.textContent=edits;
+  renderHistPanel();
+  buildPresetPreviews();
+}
+
+function renderHistPanel(){
+  const pane=document.getElementById('lp-hist');
+  const items=hist.slice(1);
+  if(!items.length){
+    pane.innerHTML=`<div class="h-empty" id="h-empty">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 8v4l3 3M3 12a9 9 0 1018 0 9 9 0 00-18 0z"/></svg>
+      Your edits appear here.<br/>Try a prompt below.</div>`;
+    return;
+  }
+  pane.innerHTML=[...items].reverse().map((h,ri)=>{
+    const idx=items.length-ri;
+    return`<div class="hitem ${idx===hIdx?'cur':''}" onclick="jumpTo(${idx})">
+      <div class="hdot"></div>
+      <div class="hbody">
+        <div class="hlabel">${h.label}</div>
+        <div class="hmeta">${ri===0?'Current state':ri+' step'+(ri>1?'s':'')+' ago'}</div>
+      </div>
+      <button class="hundo" onclick="event.stopPropagation();jumpTo(${idx-1})" title="Undo this step">↩</button>
+    </div>`;
+  }).join('');
+}
+
+function jumpTo(idx){
+  if(idx<0||!hist[idx])return;
+  hIdx=idx;
+  const snap=hist[idx];
+  for(const k in A)A[k]=snap.A[k]??0;
+  syncSliders();renderCanvas();renderHistPanel();
+}
+
+function undo(){if(hIdx>0)jumpTo(hIdx-1);else showToast('Nothing to undo',true);}
+function redo(){if(hIdx<hist.length-1)jumpTo(hIdx+1);else showToast('Nothing to redo',true);}
+
+/* ════════════════════════════════════════
+   COMPARE / ZOOM / TOOLS / RESET
+════════════════════════════════════════ */
+function startCmp(){
+  if(!origSrc)return;comparing=true;
+  const cv=document.getElementById('main-cv'),ctx=cv.getContext('2d');
+  ctx.clearRect(0,0,cv.width,cv.height);ctx.drawImage(imgEl,0,0);
+}
+function endCmp(){if(comparing){comparing=false;renderCanvas();}}
+
+function dz(d){setZoom(zoom+d);}
+function setZoom(z){zoom=Math.max(0.1,Math.min(6,z));if(origSrc)renderCanvas();}
+
+function setTool(name){
+  tool=name;
+  document.querySelectorAll('.tbtn[id^=tb-]').forEach(b=>b.classList.remove('on'));
+  document.getElementById('tb-'+name)?.classList.add('on');
+  if(name!=='select')showToast({crop:'Crop tool (drag to crop — coming next build)',heal:'Spot heal (click to repair — coming next build)',pick:'Eyedropper (click pixel to sample)'}[name]||'');
+}
+
+function resetAll(){
+  if(!origSrc)return;
+  clearState();renderCanvas();
+  pushHist('Reset');
+  showToast('Reset to original');
+}
+
+/* ════════════════════════════════════════
+   EXPORT
+════════════════════════════════════════ */
+function goExport(){document.getElementById('sec-export').scrollIntoView({behavior:'smooth'});}
+function selFmt(f,el){fmt=f;document.querySelectorAll('.exp-fmt').forEach(o=>o.classList.remove('on'));el.classList.add('on');}
+function doExport(){
+  if(!origSrc)return showToast('Load a photo first',true);
+  const cv=document.getElementById('main-cv');
+  const q=parseInt(document.getElementById('exp-q').value)/100;
+  const link=document.createElement('a');
+  if(fmt==='png'){link.href=cv.toDataURL('image/png');link.download='lumio-export.png';}
+  else if(fmt==='webp'){link.href=cv.toDataURL('image/webp',q);link.download='lumio-export.webp';}
+  else{link.href=cv.toDataURL('image/jpeg',q);link.download='lumio-export.jpg';}
+  link.click();
+  showToast('Exported as '+fmt.toUpperCase());
+}
+
+/* ════════════════════════════════════════
+   UI HELPERS
+════════════════════════════════════════ */
+function lpSwitch(name,btn){
+  document.querySelectorAll('.lp-tab').forEach(t=>t.classList.remove('on'));
+  document.querySelectorAll('.lp-pane').forEach(p=>p.classList.remove('on'));
+  btn.classList.add('on');
+  document.getElementById('lp-'+name).classList.add('on');
+}
+
+function toggleSec(id){document.getElementById(id).classList.toggle('collapsed');}
+
+function setProc(on,h,s,step){
+  document.getElementById('proc').classList.toggle('on',on);
+  if(h)document.getElementById('proc-h').textContent=h;
+  if(s)document.getElementById('proc-s').textContent=s;
+  if(step!==undefined){for(let i=0;i<3;i++){document.getElementById('pd'+i)?.classList.toggle('on',i<=step);}}
+}
+
+let toastTmr=null;
+function showToast(msg,isErr=false){
+  const t=document.getElementById('toast');
+  document.getElementById('tmsg').textContent=msg;
+  document.getElementById('tdot').className='tdot'+(isErr?' e':'');
+  t.classList.add('on');
+  clearTimeout(toastTmr);
+  toastTmr=setTimeout(()=>t.classList.remove('on'),3500);
+}
+
+function useChip(el,txt){
+  document.getElementById('pinput').value=txt;
+  onPI();
+  document.getElementById('pinput').focus();
+}
+
+function onPI(){
+  const v=document.getElementById('pinput').value;
+  document.getElementById('psend').classList.toggle('on',v.trim().length>0);
+  document.getElementById('pcount').textContent=v.length||'';
+}
+
+function onPK(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendPrompt();}}
+
+/* ════════════════════════════════════════
+   KEYBOARD SHORTCUTS
+════════════════════════════════════════ */
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;
+  if((e.metaKey||e.ctrlKey)&&!e.shiftKey&&e.key==='z'){e.preventDefault();undo();}
+  if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key==='z'){e.preventDefault();redo();}
+  if(e.key==='+'||e.key==='=')dz(.15);
+  if(e.key==='-')dz(-.15);
+  if(e.key==='0')setZoom(1);
+  if(e.code==='Space'&&origSrc){e.preventDefault();startCmp();}
+  if(e.key==='v')setTool('select');
+  if(e.key==='c')setTool('crop');
+  if(e.key==='h')setTool('heal');
+  if(e.key==='i')setTool('pick');
+});
+document.addEventListener('keyup',e=>{if(e.code==='Space')endCmp();});
+
+// Ctrl/Cmd+Wheel zoom
+document.getElementById('stage').addEventListener('wheel',e=>{
+  if(e.ctrlKey||e.metaKey){e.preventDefault();dz(-e.deltaY*.0032);}
+},{passive:false});
+
+// Clipboard paste
+document.addEventListener('paste',e=>{
+  const item=e.clipboardData?.items?.[0];
+  if(item?.type.startsWith('image/')){const f=item.getAsFile();if(f)loadFile(f);}
+});
+
+/* ════════════════════════════════════════
+   UTILS
+════════════════════════════════════════ */
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function trunc(s,n){return s.length>n?s.slice(0,n)+'…':s;}
+function fmtSz(b){if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFixed(1)+'KB';return(b/1048576).toFixed(1)+'MB';}
+function gcd(a,b){return b?gcd(b,a%b):a;}
+function aspectRatio(w,h){const g=gcd(w,h);return`${w/g}:${h/g}`;}
+</script>
+</body>
+</html>
