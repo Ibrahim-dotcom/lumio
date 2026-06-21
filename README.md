@@ -9,21 +9,22 @@ Lumio is a production-grade, AI-native image editing platform built for content 
 ## ✨ Features
 
 ### Implemented
-- **Lightroom-style Adjustments** — Exposure, Brightness, Contrast, Saturation, Hue, Temperature, Tint, Highlights, Shadows, Sharpness, Vignette
-- **HSL Panel** — Per-hue Hue/Saturation/Luminance control across 8 color channels
-- **Background Removal** — AI-powered rembg (U2Net) via Celery worker
-- **Spot Healing Brush** — OpenCV inpainting (TELEA algorithm), GPU-accelerated
-- **Crop & Rotate** — Interactive overlay with corner handles and floating toolbar
-- **Presets** — Built-in editorial presets + custom user-saved presets (localStorage)
-- **Edit History** — Full undo/redo with branching snapshot model
-- **Canvas Pipeline** — Real-time pixel-level adjustment preview (no server round-trips)
-- **Before/After Compare** — Hold-to-compare against original image
-- **Export** — JPEG/PNG/WebP with quality control
+- **AI Chat Panel (Natural Language Editing)** — Conversational prompt panel powered by a secure server-side Gemini LLM Proxy (`POST /api/ai/plan/`) with regex fallback.
+- **Clone Stamp Tool** — Circular brush clone stamping. Paint destination regions interactively with a source crosshair overlay (`Alt+Click`), processed asynchronously via Celery using OpenCV.
+- **Text Layers Tool** — Draggable, double-clickable, editable overlay text layers with font size, opacity, weight, and color settings. Text layers are burned into the canvas at original resolution on export.
+- **Lightroom-style Adjustments** — Exposure, Brightness, Contrast, Saturation, Hue, Temperature, Tint, Highlights, Shadows, Sharpness, Vignette.
+- **HSL Panel** — Per-hue Hue/Saturation/Luminance control across 8 color channels.
+- **Background Removal** — AI-powered rembg (U2Net) via Celery worker.
+- **Spot Healing Brush** — OpenCV inpainting (TELEA algorithm) with support for transparent 4-channel BGRA PNGs.
+- **Crop & Rotate** — Interactive overlay with corner handles and floating toolbar.
+- **Presets** — Built-in editorial presets + custom user-saved presets (localStorage).
+- **Edit History** — Full undo/redo with branching snapshot model.
+- **Canvas Pipeline** — Real-time pixel-level adjustment preview (no server round-trips).
+- **Before/After Compare** — Hold-to-compare against original image.
+- **Export** — JPEG/PNG/WebP with quality control.
 
 ### Coming Next
-- AI Chat Panel (natural language editing)
-- Text & Shape Layers
-- Clone Stamp Tool
+- Shape Layers
 - Batch Processing & Workflow Engine
 - Sky Replacement
 - Content-Aware Fill / Object Removal
@@ -62,7 +63,7 @@ Lumio is a production-grade, AI-native image editing platform built for content 
 | Backend | Python 3.8, Django 4.x, Django REST Framework |
 | Task Queue | Celery 5, Redis |
 | Image Processing | OpenCV, rembg, Pillow |
-| Database | SQLite (dev) → PostgreSQL (prod) |
+| Database | PostgreSQL |
 | Storage | Local (dev) → S3-compatible (prod) |
 
 ---
@@ -73,6 +74,7 @@ Lumio is a production-grade, AI-native image editing platform built for content 
 - Python 3.8+
 - Node.js 18+
 - Redis (running on `localhost:6379`)
+- PostgreSQL database named `lumio_db`
 
 ### Backend Setup
 
@@ -86,6 +88,9 @@ venv\Scripts\activate        # Windows
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Create .env file with your GEMINI_API_KEY
+# GEMINI_API_KEY=your_key_here
 
 # Run migrations
 python manage.py migrate
@@ -120,8 +125,8 @@ PHOTOTOOL/
 ├── backend/
 │   ├── api/
 │   │   ├── models.py          # Project, Image, EditHistory, Workflow
-│   │   ├── views.py           # ImageViewSet (process, remove_background, heal)
-│   │   ├── tasks.py           # Celery tasks (adjustments, bg-removal, healing)
+│   │   ├── views.py           # ImageViewSet (process, remove_background, heal, clone_stamp), AIPlannerView
+│   │   ├── tasks.py           # Celery tasks (adjustments, bg-removal, healing, clone_stamp)
 │   │   ├── serializers.py
 │   │   └── urls.py
 │   ├── lumio_backend/
@@ -132,9 +137,9 @@ PHOTOTOOL/
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Canvas/        # Main editing canvas + crop/heal overlays
+│   │   │   ├── Canvas/        # Main editing canvas + crop/heal/stamp overlays
 │   │   │   ├── LeftPanel/     # History, Layers, Assets
-│   │   │   ├── RightPanel/    # Adjustments, HSL, Presets, Export
+│   │   │   ├── RightPanel/    # Adjustments, HSL, Presets, Export, Text Layers Panel
 │   │   │   └── TopBar/        # Toolbar, tool selection
 │   │   ├── store/
 │   │   │   └── editorStore.ts # Zustand global state
