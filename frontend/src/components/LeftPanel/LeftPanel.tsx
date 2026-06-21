@@ -259,43 +259,131 @@ export function LeftPanel() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 8 }}
               transition={{ duration: 0.15 }}
-              style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}
+              style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 12 }}
             >
-              {layers.length === 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '28px 12px', textAlign: 'center', color: 'var(--t3)', fontSize: 12, lineHeight: 1.75 }}>
-                  <Layers size={22} strokeWidth={1.4} style={{ opacity: 0.4 }} />
-                  Load a photo to see layers.
+              {/* Adjustment Layers Section */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, padding: '0 2px' }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--t3)' }}>
+                    Adjustment Masks
+                  </span>
+                  {imageEl && (
+                    <button
+                      onClick={() => {
+                        useEditorStore.getState().addAdjustmentLayer()
+                        useEditorStore.getState().setActiveTool('mask')
+                        pushHistory('Add Mask Layer')
+                      }}
+                      style={{
+                        background: 'var(--s3)', border: '1px solid var(--b2)', borderRadius: 4,
+                        color: 'var(--t1)', fontSize: 10, padding: '2px 8px', cursor: 'pointer',
+                        fontWeight: 500, transition: 'all var(--fast)'
+                      }}
+                    >
+                      + Add Mask
+                    </button>
+                  )}
                 </div>
-              ) : (
-                [...layers].reverse().map(layer => (
-                  <div
-                    key={layer.id}
-                    style={{
-                      background: 'var(--s2)', border: '1px solid var(--b1)', borderRadius: 'var(--r)',
-                      padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8,
-                    }}
-                  >
-                    <button
-                      onClick={() => toggleLayerVisibility(layer.id)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t3)', padding: 0, flexShrink: 0 }}
-                    >
-                      {layer.visible ? <Eye size={13} /> : <EyeOff size={13} />}
-                    </button>
-                    <div style={{ flex: 1, fontSize: 12, color: layer.visible ? 'var(--t1)' : 'var(--t3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {layer.name}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {useEditorStore(s => s.adjustmentLayers).length === 0 ? (
+                    <div style={{ padding: '12px 6px', textAlign: 'center', color: 'var(--t3)', fontSize: 11, background: 'var(--s2)', borderRadius: 'var(--r)', border: '1px dashed var(--b1)' }}>
+                      No adjustments masks yet
                     </div>
-                    <span style={{ fontSize: 9, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      {layer.type}
-                    </span>
-                    <button
-                      onClick={() => toggleLayerLock(layer.id)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t3)', padding: 0, flexShrink: 0 }}
-                    >
-                      {layer.locked ? <Lock size={12} /> : <Unlock size={12} />}
-                    </button>
-                  </div>
-                ))
-              )}
+                  ) : (
+                    [...useEditorStore(s => s.adjustmentLayers)].reverse().map(adjLayer => {
+                      const isActive = useEditorStore(s => s.activeAdjustmentLayerId) === adjLayer.id
+                      return (
+                        <div
+                          key={adjLayer.id}
+                          onClick={() => {
+                            useEditorStore.getState().setActiveAdjustmentLayer(adjLayer.id)
+                            useEditorStore.getState().setActiveTool('mask')
+                          }}
+                          style={{
+                            background: isActive ? 'var(--ag2)' : 'var(--s2)',
+                            border: `1px solid ${isActive ? 'var(--a)' : 'var(--b1)'}`,
+                            borderRadius: 'var(--r)',
+                            padding: '6px 8px', display: 'flex', alignItems: 'center', gap: 8,
+                            cursor: 'pointer', transition: 'all var(--fast)'
+                          }}
+                        >
+                          <button
+                            onClick={e => {
+                              e.stopPropagation()
+                              useEditorStore.getState().setAdjustmentLayerVisibility(adjLayer.id, !adjLayer.visible)
+                            }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t3)', padding: 0, flexShrink: 0, display: 'flex', alignItems: 'center' }}
+                          >
+                            {adjLayer.visible ? <Eye size={13} /> : <EyeOff size={13} />}
+                          </button>
+                          <div style={{ flex: 1, fontSize: 11.5, color: adjLayer.visible ? 'var(--t1)' : 'var(--t3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isActive ? 600 : 400 }}>
+                            {adjLayer.name}
+                          </div>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation()
+                              useEditorStore.getState().removeAdjustmentLayer(adjLayer.id)
+                              pushHistory('Delete Mask Layer')
+                            }}
+                            style={{
+                              background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer',
+                              fontSize: 12, padding: '0 2px', lineHeight: 1, display: 'flex', alignItems: 'center'
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.color = 'var(--red)'}
+                            onMouseLeave={e => e.currentTarget.style.color = 'var(--t3)'}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Pixel Layers Section */}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--t3)', marginBottom: 6, padding: '0 2px' }}>
+                  Image Layers
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {layers.length === 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '28px 12px', textAlign: 'center', color: 'var(--t3)', fontSize: 12, lineHeight: 1.75 }}>
+                      <Layers size={22} strokeWidth={1.4} style={{ opacity: 0.4 }} />
+                      Load a photo to see layers.
+                    </div>
+                  ) : (
+                    [...layers].reverse().map(layer => (
+                      <div
+                        key={layer.id}
+                        style={{
+                          background: 'var(--s2)', border: '1px solid var(--b1)', borderRadius: 'var(--r)',
+                          padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8,
+                        }}
+                      >
+                        <button
+                          onClick={() => toggleLayerVisibility(layer.id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t3)', padding: 0, flexShrink: 0 }}
+                        >
+                          {layer.visible ? <Eye size={13} /> : <EyeOff size={13} />}
+                        </button>
+                        <div style={{ flex: 1, fontSize: 12, color: layer.visible ? 'var(--t1)' : 'var(--t3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {layer.name}
+                        </div>
+                        <span style={{ fontSize: 9, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          {layer.type}
+                        </span>
+                        <button
+                          onClick={() => toggleLayerLock(layer.id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--t3)', padding: 0, flexShrink: 0 }}
+                        >
+                          {layer.locked ? <Lock size={12} /> : <Unlock size={12} />}
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </motion.div>
           )}
 

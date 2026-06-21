@@ -4,12 +4,13 @@ import { useEditorStore } from '../../store/editorStore'
 import type { Tool } from '../../store/editorStore'
 import {
   MousePointer2, Crop, Sparkles, Pipette,
-  Undo2, Redo2, RotateCcw, Download, Stamp, Type, Square, Circle
+  Undo2, Redo2, RotateCcw, Download, Stamp, Type, Square, Circle, Brush
 } from 'lucide-react'
 
 const TOOLS: { id: Tool; label: string; icon: React.ReactNode; key: string }[] = [
   { id: 'select', label: 'Select', icon: <MousePointer2 size={13} strokeWidth={1.8} />, key: 'V' },
   { id: 'crop',   label: 'Crop',   icon: <Crop size={13} strokeWidth={1.8} />,          key: 'C' },
+  { id: 'mask',   label: 'Mask',   icon: <Brush size={13} strokeWidth={1.8} />,         key: 'B' },
   { id: 'heal',   label: 'Heal',   icon: <Sparkles size={13} strokeWidth={1.8} />,      key: 'H' },
   { id: 'stamp',  label: 'Stamp',  icon: <Stamp size={13} strokeWidth={1.8} />,         key: 'S' },
   { id: 'text',   label: 'Text',   icon: <Type size={13} strokeWidth={1.8} />,           key: 'T' },

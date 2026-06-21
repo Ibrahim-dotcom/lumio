@@ -3,7 +3,7 @@
  * All requests go through this module to make mocking/swapping easy.
  */
 
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8001'
 
 export interface ApiProject {
   id: string
@@ -170,7 +170,7 @@ export async function cloneStamp(
 export interface ApiWorkflow {
   id: string
   name: string
-  steps: Array<{ type: string; [key: string]: any }>
+  steps: Array<{ type: string;[key: string]: any }>
   created_at: string
 }
 

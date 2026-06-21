@@ -93,6 +93,17 @@ export interface HistoryEntry {
   imageEl?: HTMLImageElement
 }
 
+// ─── Adjustment Mask Layer ────────────────────────────────────────────────────
+export interface AdjustmentLayer {
+  id: string
+  name: string
+  visible: boolean
+  adjustments: Adjustments
+  hsl: HSLState
+  curves: CurvesState
+  colorGrading: ColorGradingState
+}
+
 // ─── Layer ──────────────────────────────────────────────────────────────────
 export interface Layer {
   id: string
@@ -104,7 +115,7 @@ export interface Layer {
 }
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
-export type Tool = 'select' | 'crop' | 'heal' | 'pick' | 'stamp' | 'text' | 'rect' | 'circle'
+export type Tool = 'select' | 'crop' | 'heal' | 'pick' | 'stamp' | 'text' | 'rect' | 'circle' | 'mask'
 
 // ─── Shape Layer ─────────────────────────────────────────────────────────────
 export interface ShapeLayer {
@@ -152,13 +163,21 @@ export interface EditorStore {
   setBackendIds: (projectId: string, imageId: string) => void
   clearBackendIds: () => void
 
-  // Adjustments
+  // Adjustments (Global Base)
   adjustments: Adjustments
   setAdjustment: (key: keyof Adjustments, value: number) => void
   applyAdjustmentDelta: (deltas: Partial<Adjustments>) => void
   resetAdjustment: (key: keyof Adjustments) => void
   resetSectionKeys: (keys: (keyof Adjustments)[]) => void
   resetAllAdjustments: () => void
+
+  // Adjustment Mask Layers (Selective Edits)
+  adjustmentLayers: AdjustmentLayer[]
+  activeAdjustmentLayerId: string | null
+  addAdjustmentLayer: () => void
+  removeAdjustmentLayer: (id: string) => void
+  setActiveAdjustmentLayer: (id: string | null) => void
+  setAdjustmentLayerVisibility: (id: string, visible: boolean) => void
 
   // HSL
   hsl: HSLState
@@ -310,12 +329,21 @@ export const useEditorStore = create<EditorStore>()(
 
     // Adjustments
     adjustments: { ...DEFAULT_ADJUSTMENTS },
-    setAdjustment: (key, value) => {
-      set(s => ({ adjustments: { ...s.adjustments, [key]: value } }))
-    },
-    applyAdjustmentDelta: (deltas) => {
-      set(s => {
-        const next = { ...s.adjustments }
+    setAdjustment: (key, value) => set(s => {
+      if (s.activeAdjustmentLayerId) {
+        return {
+          adjustmentLayers: s.adjustmentLayers.map(l =>
+            l.id === s.activeAdjustmentLayerId
+              ? { ...l, adjustments: { ...l.adjustments, [key]: value } }
+              : l
+          )
+        }
+      }
+      return { adjustments: { ...s.adjustments, [key]: value } }
+    }),
+    applyAdjustmentDelta: (deltas) => set(s => {
+      const applyDelta = (adj: Adjustments) => {
+        const next = { ...adj }
         for (const [k, v] of Object.entries(deltas)) {
           const key = k as keyof Adjustments
           const clampMax = key === 'vignette' ? 0 : key === 'hue' ? 180 : 100
@@ -323,52 +351,150 @@ export const useEditorStore = create<EditorStore>()(
             ['sharpness', 'noise', 'grain', 'fade', 'glow'].includes(key) ? 0 : -100
           next[key] = Math.max(clampMin, Math.min(clampMax, (next[key] ?? 0) + Math.round(v!)))
         }
-        return { adjustments: next }
-      })
-    },
-    resetAdjustment: (key) => {
-      set(s => ({ adjustments: { ...s.adjustments, [key]: 0 } }))
-    },
-    resetSectionKeys: (keys) => {
-      set(s => {
-        const next = { ...s.adjustments }
-        keys.forEach(k => { next[k] = 0 })
-        return { adjustments: next }
-      })
-    },
-    resetAllAdjustments: () => set({
-      adjustments: { ...DEFAULT_ADJUSTMENTS },
-      hsl: JSON.parse(JSON.stringify(DEFAULT_HSL)),
-      curves: JSON.parse(JSON.stringify(DEFAULT_CURVES)),
-      colorGrading: JSON.parse(JSON.stringify(DEFAULT_COLOR_GRADING)),
+        return next
+      }
+
+      if (s.activeAdjustmentLayerId) {
+        return {
+          adjustmentLayers: s.adjustmentLayers.map(l =>
+            l.id === s.activeAdjustmentLayerId
+              ? { ...l, adjustments: applyDelta(l.adjustments) }
+              : l
+          )
+        }
+      }
+      return { adjustments: applyDelta(s.adjustments) }
     }),
+    resetAdjustment: (key) => set(s => {
+      if (s.activeAdjustmentLayerId) {
+        return {
+          adjustmentLayers: s.adjustmentLayers.map(l =>
+            l.id === s.activeAdjustmentLayerId
+              ? { ...l, adjustments: { ...l.adjustments, [key]: 0 } }
+              : l
+          )
+        }
+      }
+      return { adjustments: { ...s.adjustments, [key]: 0 } }
+    }),
+    resetSectionKeys: (keys) => set(s => {
+      if (s.activeAdjustmentLayerId) {
+        return {
+          adjustmentLayers: s.adjustmentLayers.map(l => {
+            if (l.id === s.activeAdjustmentLayerId) {
+              const next = { ...l.adjustments }
+              keys.forEach(k => { next[k] = 0 })
+              return { ...l, adjustments: next }
+            }
+            return l
+          })
+        }
+      }
+      const next = { ...s.adjustments }
+      keys.forEach(k => { next[k] = 0 })
+      return { adjustments: next }
+    }),
+    resetAllAdjustments: () => set(s => {
+      if (s.activeAdjustmentLayerId) {
+        return {
+          adjustmentLayers: s.adjustmentLayers.map(l =>
+            l.id === s.activeAdjustmentLayerId
+              ? {
+                  ...l,
+                  adjustments: { ...DEFAULT_ADJUSTMENTS },
+                  hsl: JSON.parse(JSON.stringify(DEFAULT_HSL)),
+                  curves: JSON.parse(JSON.stringify(DEFAULT_CURVES)),
+                  colorGrading: JSON.parse(JSON.stringify(DEFAULT_COLOR_GRADING))
+                }
+              : l
+          )
+        }
+      }
+      return {
+        adjustments: { ...DEFAULT_ADJUSTMENTS },
+        hsl: JSON.parse(JSON.stringify(DEFAULT_HSL)),
+        curves: JSON.parse(JSON.stringify(DEFAULT_CURVES)),
+        colorGrading: JSON.parse(JSON.stringify(DEFAULT_COLOR_GRADING)),
+      }
+    }),
+
+    // Adjustment Mask Layers
+    adjustmentLayers: [],
+    activeAdjustmentLayerId: null,
+    addAdjustmentLayer: () => set(s => {
+      const newLayer: AdjustmentLayer = {
+        id: 'adj_' + Date.now().toString(),
+        name: 'Mask Layer ' + (s.adjustmentLayers.length + 1),
+        visible: true,
+        adjustments: { ...DEFAULT_ADJUSTMENTS },
+        hsl: JSON.parse(JSON.stringify(DEFAULT_HSL)),
+        curves: JSON.parse(JSON.stringify(DEFAULT_CURVES)),
+        colorGrading: JSON.parse(JSON.stringify(DEFAULT_COLOR_GRADING))
+      }
+      return { adjustmentLayers: [...s.adjustmentLayers, newLayer], activeAdjustmentLayerId: newLayer.id }
+    }),
+    removeAdjustmentLayer: (id) => set(s => ({
+      adjustmentLayers: s.adjustmentLayers.filter(l => l.id !== id),
+      activeAdjustmentLayerId: s.activeAdjustmentLayerId === id ? null : s.activeAdjustmentLayerId
+    })),
+    setActiveAdjustmentLayer: (id) => set({ activeAdjustmentLayerId: id }),
+    setAdjustmentLayerVisibility: (id, visible) => set(s => ({
+      adjustmentLayers: s.adjustmentLayers.map(l => l.id === id ? { ...l, visible } : l)
+    })),
 
     // HSL
     hsl: JSON.parse(JSON.stringify(DEFAULT_HSL)),
     activeHSL: 0,
     setActiveHSL: (idx) => set({ activeHSL: idx }),
-    setHSLChannel: (color, prop, value) => {
-      set(s => ({
+    setHSLChannel: (color, prop, value) => set(s => {
+      if (s.activeAdjustmentLayerId) {
+        return {
+          adjustmentLayers: s.adjustmentLayers.map(l =>
+            l.id === s.activeAdjustmentLayerId
+              ? { ...l, hsl: { ...l.hsl, [color]: { ...l.hsl[color], [prop]: value } } }
+              : l
+          )
+        }
+      }
+      return {
         hsl: { ...s.hsl, [color]: { ...s.hsl[color], [prop]: value } }
-      }))
-    },
+      }
+    }),
 
     // Curves
     curves: JSON.parse(JSON.stringify(DEFAULT_CURVES)),
-    setCurvesChannel: (channel, points) => {
-      set(s => ({ curves: { ...s.curves, [channel]: points } }))
-    },
+    setCurvesChannel: (channel, points) => set(s => {
+      if (s.activeAdjustmentLayerId) {
+        return {
+          adjustmentLayers: s.adjustmentLayers.map(l =>
+            l.id === s.activeAdjustmentLayerId
+              ? { ...l, curves: { ...l.curves, [channel]: points } }
+              : l
+          )
+        }
+      }
+      return { curves: { ...s.curves, [channel]: points } }
+    }),
 
     // Color Grading
     colorGrading: JSON.parse(JSON.stringify(DEFAULT_COLOR_GRADING)),
-    setColorGradingChannel: (channel, prop, value) => {
-      set(s => ({
+    setColorGradingChannel: (channel, prop, value) => set(s => {
+      if (s.activeAdjustmentLayerId) {
+        return {
+          adjustmentLayers: s.adjustmentLayers.map(l =>
+            l.id === s.activeAdjustmentLayerId
+              ? { ...l, colorGrading: { ...l.colorGrading, [channel]: { ...l.colorGrading[channel], [prop]: value } } }
+              : l
+          )
+        }
+      }
+      return {
         colorGrading: {
           ...s.colorGrading,
           [channel]: { ...s.colorGrading[channel], [prop]: value }
         }
-      }))
-    },
+      }
+    }),
 
     // History
     history: [],

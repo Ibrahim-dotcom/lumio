@@ -51,35 +51,33 @@ export function useBackgroundRemoval() {
     let activeImageId = backendImageId
     let activeProjectId = projectId
 
-    // ── Step 1: If not yet synced to backend, upload now ──────────────────────
-    if (!activeImageId) {
-      setStatus('syncing')
-      setProgress(10)
-      showToast('Syncing image to server…')
+    // ── Step 1: Always sync the current image to backend ──────────────────────
+    setStatus('syncing')
+    setProgress(10)
+    showToast('Syncing image to server…')
 
-      try {
-        const blob = await extractImageBlob(imageEl)
-        const file = new File([blob], imageName || 'canvas-export.png', { type: 'image/png' })
+    try {
+      const blob = await extractImageBlob(imageEl)
+      const file = new File([blob], imageName || 'canvas-export.png', { type: 'image/png' })
 
-        // Create project if needed
-        if (!activeProjectId) {
-          const project = await api.createProject(imageName?.replace(/\.[^/.]+$/, '') || 'Untitled')
-          activeProjectId = project.id
-        }
-
-        const uploaded = await api.uploadImage(activeProjectId, file)
-        activeImageId = uploaded.id
-        setBackendIds(activeProjectId, activeImageId)
-        setProgress(30)
-      } catch (syncErr) {
-        setStatus('error')
-        setProgress(0)
-        showToast(
-          'Failed to sync image with backend. Is Django running on port 8000?',
-          true,
-        )
-        return
+      // Create project if needed
+      if (!activeProjectId) {
+        const project = await api.createProject(imageName?.replace(/\.[^/.]+$/, '') || 'Untitled')
+        activeProjectId = project.id
       }
+
+      const uploaded = await api.uploadImage(activeProjectId, file)
+      activeImageId = uploaded.id
+      setBackendIds(activeProjectId, activeImageId)
+      setProgress(30)
+    } catch (syncErr) {
+      setStatus('error')
+      setProgress(0)
+      showToast(
+        'Failed to sync image with backend. Is Django running on port 8000?',
+        true,
+      )
+      return
     }
 
     // ── Step 2: Dispatch the background removal task ──────────────────────────

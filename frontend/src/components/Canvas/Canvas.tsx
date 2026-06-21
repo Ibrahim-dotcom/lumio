@@ -21,6 +21,28 @@ export function Canvas() {
   const [isSpaceDown, setIsSpaceDown] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
 
+  // Custom ref to store mask canvases per adjustment layer ID
+  const maskCanvasesRef = useRef<Record<string, HTMLCanvasElement>>({})
+  
+  // Brush size and eraser settings sync
+  const [maskBrushSize, setMaskBrushSize] = useState(30)
+  const [isMaskEraser, setIsMaskEraser] = useState(false)
+
+  useEffect(() => {
+    const handleBrushSize = (e: Event) => {
+      setMaskBrushSize((e as CustomEvent).detail)
+    }
+    const handleEraser = (e: Event) => {
+      setIsMaskEraser((e as CustomEvent).detail)
+    }
+    window.addEventListener('lumio_mask_brush_size_change', handleBrushSize)
+    window.addEventListener('lumio_is_mask_eraser_change', handleEraser)
+    return () => {
+      window.removeEventListener('lumio_mask_brush_size_change', handleBrushSize)
+      window.removeEventListener('lumio_is_mask_eraser_change', handleEraser)
+    }
+  }, [])
+
   // ─── Panning ────────────────────────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -94,6 +116,70 @@ export function Canvas() {
   const history = useEditorStore(s => s.history)
   const curves = useEditorStore(s => s.curves)
   const colorGrading = useEditorStore(s => s.colorGrading)
+
+  // ─── Render engine ──────────────────────────────────────────────────────────
+  const renderCanvas = useCallback(() => {
+    if (!imageEl || !canvasRef.current || !stageRef.current) return
+    const cv = canvasRef.current
+    const stage = stageRef.current
+    const originalImg = comparing ? (history[0]?.imageEl || imageEl) : imageEl
+    const maxW = stage.clientWidth - 80
+    const maxH = stage.clientHeight - 60
+    const sc = Math.min(maxW / originalImg.naturalWidth, maxH / originalImg.naturalHeight, 1)
+    const W = originalImg.naturalWidth, H = originalImg.naturalHeight
+    cv.width = W; cv.height = H
+    cv.style.width = Math.round(W * sc * zoom) + 'px'
+    cv.style.height = Math.round(H * sc * zoom) + 'px'
+
+    const ctx = cv.getContext('2d', { willReadFrequently: true })!
+    ctx.drawImage(originalImg, 0, 0)
+
+    if (!comparing) {
+      pixelPipeline(ctx, W, H, adjustments, curves, colorGrading, adjustmentLayers, maskCanvasesRef.current)
+    }
+
+    if (histRef.current) {
+      drawHistogram(ctx, W, H, histRef.current)
+    }
+
+    // After drawing the image with local adjustments, if the active tool is 'mask' and an active layer is selected,
+    // draw a red quick mask overlay on the main canvas or draw the mask overlay on overlayCanvas.
+    // Let's draw the red overlay on our overlayCanvasRef to visualize the mask.
+    const activeLayerId = useEditorStore.getState().activeAdjustmentLayerId
+    const activeLayer = useEditorStore.getState().adjustmentLayers.find(l => l.id === activeLayerId)
+    if (activeTool === 'mask' && activeLayerId && activeLayer && overlayCanvasRef.current) {
+      const oCv = overlayCanvasRef.current
+      oCv.width = W
+      oCv.height = H
+      const oCtx = oCv.getContext('2d')!
+      oCtx.clearRect(0, 0, W, H)
+
+      const maskCv = maskCanvasesRef.current[activeLayerId]
+      if (maskCv) {
+        // Create red quick-mask overlay from alpha channel of maskCv
+        const maskData = maskCv.getContext('2d')!.getImageData(0, 0, W, H)
+        const oData = oCtx.createImageData(W, H)
+        for (let i = 0; i < maskData.data.length; i += 4) {
+          const alpha = maskData.data[i + 3]
+          if (alpha > 0) {
+            oData.data[i] = 255     // R
+            oData.data[i + 1] = 40  // G
+            oData.data[i + 2] = 40  // B
+            oData.data[i + 3] = alpha * 0.48 // transparency
+          }
+        }
+        oCtx.putImageData(oData, 0, 0)
+      }
+    }
+  }, [imageEl, adjustments, curves, colorGrading, zoom, comparing, history, useEditorStore(s => s.adjustmentLayers), useEditorStore(s => s.activeAdjustmentLayerId), activeTool])
+
+  const schedRender = useCallback(() => {
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null
+      renderCanvas()
+    })
+  }, [renderCanvas])
 
   const [cropBox, setCropBox] = useState<CropBox>({
     x: 0.1, y: 0.1, w: 0.8, h: 0.8
@@ -187,7 +273,7 @@ export function Canvas() {
 
   // Keep overlay canvas size in sync with target canvas
   useEffect(() => {
-    if ((activeTool === 'heal' || activeTool === 'stamp' || activeTool === 'pick') && overlayCanvasRef.current && canvasRef.current) {
+    if ((activeTool === 'heal' || activeTool === 'stamp' || activeTool === 'pick' || activeTool === 'mask') && overlayCanvasRef.current && canvasRef.current) {
       overlayCanvasRef.current.width = canvasRef.current.width
       overlayCanvasRef.current.height = canvasRef.current.height
     }
@@ -201,32 +287,30 @@ export function Canvas() {
     let activeImageId = backendImageId
     let activeProjectId = projectId
 
-    // Auto-sync if not synced yet
-    if (!activeImageId) {
-      showToast('Syncing image with server...')
-      try {
-        const blob = await new Promise<Blob>((resolve, reject) => {
-          const canvas = document.createElement('canvas')
-          canvas.width = imageEl.naturalWidth || imageEl.width
-          canvas.height = imageEl.naturalHeight || imageEl.height
-          canvas.getContext('2d')!.drawImage(imageEl, 0, 0)
-          canvas.toBlob(b => b ? resolve(b) : reject(new Error('blob null')), 'image/png')
-        })
-        const file = new File([blob], imageName || 'canvas-export.png', { type: 'image/png' })
-        if (!activeProjectId) {
-          const project = await api.createProject(imageName?.replace(/\.[^/.]+$/, '') || 'Untitled')
-          activeProjectId = project.id
-        }
-        const uploaded = await api.uploadImage(activeProjectId, file)
-        activeImageId = uploaded.id
-        setBackendIds(activeProjectId, activeImageId)
-      } catch (err) {
-        showToast('Failed to sync image with server', true)
-        setIsHealing(false)
-        const canvas = overlayCanvasRef.current
-        if (canvas) canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height)
-        return
+    // Always sync the current image state so backend has the latest pixels (including crops/previous heals)
+    showToast('Syncing image state with server...')
+    try {
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        const canvas = document.createElement('canvas')
+        canvas.width = imageEl.naturalWidth || imageEl.width
+        canvas.height = imageEl.naturalHeight || imageEl.height
+        canvas.getContext('2d')!.drawImage(imageEl, 0, 0)
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('blob null')), 'image/png')
+      })
+      const file = new File([blob], imageName || 'canvas-export.png', { type: 'image/png' })
+      if (!activeProjectId) {
+        const project = await api.createProject(imageName?.replace(/\.[^/.]+$/, '') || 'Untitled')
+        activeProjectId = project.id
       }
+      const uploaded = await api.uploadImage(activeProjectId, file)
+      activeImageId = uploaded.id
+      setBackendIds(activeProjectId, activeImageId)
+    } catch (err) {
+      showToast('Failed to sync image with server', true)
+      setIsHealing(false)
+      const canvas = overlayCanvasRef.current
+      if (canvas) canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height)
+      return
     }
 
     try {
@@ -312,6 +396,132 @@ export function Canvas() {
     window.addEventListener('mouseup', handleMouseUp)
   }, [imageEl, brushSize, handleHealRequest])
 
+  const handleMaskMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isSpaceDown) return
+    const activeLayerId = useEditorStore.getState().activeAdjustmentLayerId
+    if (!activeLayerId || !imageEl || !overlayCanvasRef.current) return
+    const maskCv = maskCanvasesRef.current[activeLayerId]
+    if (!maskCv) return
+
+    setIsBrushing(true)
+    const overlayCv = overlayCanvasRef.current
+    const rect = overlayCv.getBoundingClientRect()
+    const W = imageEl.naturalWidth
+    const H = imageEl.naturalHeight
+
+    const clientX = e.clientX - rect.left
+    const clientY = e.clientY - rect.top
+    const px = (clientX / rect.width) * W
+    const py = (clientY / rect.height) * H
+    const pr = (maskBrushSize / rect.width) * W
+
+    const mCtx = maskCv.getContext('2d')!
+    mCtx.lineCap = 'round'
+    mCtx.lineJoin = 'round'
+    // Erase mode draws black, Paint mode draws white (alpha channel is set to 255/0)
+    mCtx.strokeStyle = isMaskEraser ? 'rgba(0,0,0,0)' : 'rgba(255,255,255,1)'
+    // Composite operations to support erasing alpha channels
+    mCtx.globalCompositeOperation = isMaskEraser ? 'destination-out' : 'source-over'
+    mCtx.lineWidth = pr * 2
+    mCtx.beginPath()
+    mCtx.moveTo(px, py)
+    mCtx.lineTo(px, py)
+    mCtx.stroke()
+
+    schedRender()
+
+    function handleMouseMove(ev: MouseEvent) {
+      const cX = ev.clientX - rect.left
+      const cY = ev.clientY - rect.top
+      const ipx = (cX / rect.width) * W
+      const ipy = (cY / rect.height) * H
+
+      mCtx.lineTo(ipx, ipy)
+      mCtx.stroke()
+      schedRender()
+      
+      // Draw brush outline on overlay canvas
+      const oCtx = overlayCv.getContext('2d')!
+      oCtx.clearRect(0, 0, overlayCv.width, overlayCv.height)
+      // Redraw red mask
+      const maskData = maskCv.getContext('2d')!.getImageData(0, 0, W, H)
+      const oData = oCtx.createImageData(W, H)
+      for (let i = 0; i < maskData.data.length; i += 4) {
+        const alpha = maskData.data[i + 3]
+        if (alpha > 0) {
+          oData.data[i] = 255
+          oData.data[i + 1] = 40
+          oData.data[i + 2] = 40
+          oData.data[i + 3] = alpha * 0.48
+        }
+      }
+      oCtx.putImageData(oData, 0, 0)
+
+      // Draw active brush size circle
+      oCtx.beginPath()
+      oCtx.arc(cX * (W / rect.width), cY * (H / rect.height), pr, 0, Math.PI * 2)
+      oCtx.fillStyle = isMaskEraser ? 'rgba(255, 60, 60, 0.25)' : 'rgba(255, 255, 255, 0.25)'
+      oCtx.strokeStyle = '#fff'
+      oCtx.lineWidth = 1.5
+      oCtx.fill()
+      oCtx.stroke()
+    }
+
+    function handleMouseUp() {
+      setIsBrushing(false)
+      mCtx.globalCompositeOperation = 'source-over' // Reset Composite operation
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+      pushHistory(isMaskEraser ? 'Erase Local Mask' : 'Paint Local Mask')
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }, [imageEl, maskBrushSize, isMaskEraser, schedRender, isSpaceDown, pushHistory])
+
+  const handleMaskMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isBrushing || !overlayCanvasRef.current || !imageEl) return
+    const activeLayerId = useEditorStore.getState().activeAdjustmentLayerId
+    if (!activeLayerId) return
+    const maskCv = maskCanvasesRef.current[activeLayerId]
+    if (!maskCv) return
+
+    const overlayCv = overlayCanvasRef.current
+    const rect = overlayCv.getBoundingClientRect()
+    const W = imageEl.naturalWidth
+    const H = imageEl.naturalHeight
+    const clientX = e.clientX - rect.left
+    const clientY = e.clientY - rect.top
+
+    const pr = (maskBrushSize / rect.width) * W
+
+    const oCtx = overlayCv.getContext('2d')!
+    oCtx.clearRect(0, 0, overlayCv.width, overlayCv.height)
+
+    // Redraw red mask
+    const maskData = maskCv.getContext('2d')!.getImageData(0, 0, W, H)
+    const oData = oCtx.createImageData(W, H)
+    for (let i = 0; i < maskData.data.length; i += 4) {
+      const alpha = maskData.data[i + 3]
+      if (alpha > 0) {
+        oData.data[i] = 255
+        oData.data[i + 1] = 40
+        oData.data[i + 2] = 40
+        oData.data[i + 3] = alpha * 0.48
+      }
+    }
+    oCtx.putImageData(oData, 0, 0)
+
+    // Draw active brush size circle
+    oCtx.beginPath()
+    oCtx.arc(clientX * (W / rect.width), clientY * (H / rect.height), pr, 0, Math.PI * 2)
+    oCtx.fillStyle = isMaskEraser ? 'rgba(255, 60, 60, 0.2)' : 'rgba(255, 255, 255, 0.2)'
+    oCtx.strokeStyle = '#fff'
+    oCtx.lineWidth = 1.5
+    oCtx.fill()
+    oCtx.stroke()
+  }, [isBrushing, maskBrushSize, isMaskEraser, imageEl])
+
   const handleOverlayMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (isBrushing || !overlayCanvasRef.current) return
     const canvas = overlayCanvasRef.current
@@ -339,31 +549,30 @@ export function Canvas() {
     let activeImageId = backendImageId
     let activeProjectId = projectId
 
-    if (!activeImageId) {
-      showToast('Syncing image with server...')
-      try {
-        const blob = await new Promise<Blob>((resolve, reject) => {
-          const canvas = document.createElement('canvas')
-          canvas.width = imageEl.naturalWidth || imageEl.width
-          canvas.height = imageEl.naturalHeight || imageEl.height
-          canvas.getContext('2d')!.drawImage(imageEl, 0, 0)
-          canvas.toBlob(b => b ? resolve(b) : reject(new Error('blob null')), 'image/png')
-        })
-        const file = new File([blob], imageName || 'canvas-export.png', { type: 'image/png' })
-        if (!activeProjectId) {
-          const project = await api.createProject(imageName?.replace(/\.[^/.]+$/, '') || 'Untitled')
-          activeProjectId = project.id
-        }
-        const uploaded = await api.uploadImage(activeProjectId, file)
-        activeImageId = uploaded.id
-        setBackendIds(activeProjectId, activeImageId)
-      } catch (err) {
-        showToast('Failed to sync image with server', true)
-        setIsCloning(false)
-        const canvas = overlayCanvasRef.current
-        if (canvas) canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height)
-        return
+    // Always sync the current image state so backend has the latest pixels (including crops/previous heals)
+    showToast('Syncing image state with server...')
+    try {
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        const canvas = document.createElement('canvas')
+        canvas.width = imageEl.naturalWidth || imageEl.width
+        canvas.height = imageEl.naturalHeight || imageEl.height
+        canvas.getContext('2d')!.drawImage(imageEl, 0, 0)
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('blob null')), 'image/png')
+      })
+      const file = new File([blob], imageName || 'canvas-export.png', { type: 'image/png' })
+      if (!activeProjectId) {
+        const project = await api.createProject(imageName?.replace(/\.[^/.]+$/, '') || 'Untitled')
+        activeProjectId = project.id
       }
+      const uploaded = await api.uploadImage(activeProjectId, file)
+      activeImageId = uploaded.id
+      setBackendIds(activeProjectId, activeImageId)
+    } catch (err) {
+      showToast('Failed to sync image with server', true)
+      setIsCloning(false)
+      const canvas = overlayCanvasRef.current
+      if (canvas) canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height)
+      return
     }
 
     try {
@@ -733,39 +942,29 @@ export function Canvas() {
     window.addEventListener('mouseup', handleMouseUp)
   }, [activeTool, imageEl, addShapeLayer, pushHistory, showToast, setActiveTool])
 
-  // ─── Render engine ──────────────────────────────────────────────────────────
-  const renderCanvas = useCallback(() => {
-    if (!imageEl || !canvasRef.current || !stageRef.current) return
-    const cv = canvasRef.current
-    const stage = stageRef.current
-    const originalImg = comparing ? (history[0]?.imageEl || imageEl) : imageEl
-    const maxW = stage.clientWidth - 80
-    const maxH = stage.clientHeight - 60
-    const sc = Math.min(maxW / originalImg.naturalWidth, maxH / originalImg.naturalHeight, 1)
-    const W = originalImg.naturalWidth, H = originalImg.naturalHeight
-    cv.width = W; cv.height = H
-    cv.style.width = Math.round(W * sc * zoom) + 'px'
-    cv.style.height = Math.round(H * sc * zoom) + 'px'
-
-    const ctx = cv.getContext('2d', { willReadFrequently: true })!
-    ctx.drawImage(originalImg, 0, 0)
-
-    if (!comparing) {
-      pixelPipeline(ctx, W, H, adjustments, curves, colorGrading)
-    }
-
-    if (histRef.current) {
-      drawHistogram(ctx, W, H, histRef.current)
-    }
-  }, [imageEl, adjustments, curves, colorGrading, zoom, comparing, history])
-
-  const schedRender = useCallback(() => {
-    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null
-      renderCanvas()
+  // Auto initialize mask canvases when layers change
+  const adjustmentLayers = useEditorStore(s => s.adjustmentLayers)
+  useEffect(() => {
+    if (!imageEl) return
+    const W = imageEl.naturalWidth
+    const H = imageEl.naturalHeight
+    adjustmentLayers.forEach(l => {
+      if (!maskCanvasesRef.current[l.id]) {
+        const c = document.createElement('canvas')
+        c.width = W
+        c.height = H
+        const ctx = c.getContext('2d')!
+        ctx.fillStyle = 'black'
+        ctx.fillRect(0, 0, W, H)
+        maskCanvasesRef.current[l.id] = c
+      }
     })
-  }, [renderCanvas])
+  }, [adjustmentLayers, imageEl])
+
+  // Trigger render when adjustmentLayers or activeAdjustmentLayerId change
+  useEffect(() => {
+    schedRender()
+  }, [adjustmentLayers, useEditorStore(s => s.activeAdjustmentLayerId), schedRender])
 
   useEffect(() => {
     schedRender()
@@ -985,6 +1184,19 @@ export function Canvas() {
                 position: 'absolute', inset: 0, zIndex: 10,
                 cursor: isCloning ? 'wait' : 'crosshair',
                 pointerEvents: isCloning ? 'none' : 'auto',
+                width: '100%', height: '100%',
+              }}
+            />
+          )}
+          {activeTool === 'mask' && (
+            <canvas
+              ref={overlayCanvasRef}
+              onMouseDown={handleMaskMouseDown}
+              onMouseMove={handleMaskMouseMove}
+              style={{
+                position: 'absolute', inset: 0, zIndex: 10,
+                cursor: 'crosshair',
+                pointerEvents: 'auto',
                 width: '100%', height: '100%',
               }}
             />

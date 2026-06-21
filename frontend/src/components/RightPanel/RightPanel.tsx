@@ -147,7 +147,14 @@ function Slider({
   min: number
   max: number
 }) {
-  const value = useEditorStore(s => s.adjustments[adjKey])
+  const activeAdjustmentLayerId = useEditorStore(s => s.activeAdjustmentLayerId)
+  const value = useEditorStore(s => {
+    if (s.activeAdjustmentLayerId) {
+      const layer = s.adjustmentLayers.find(l => l.id === s.activeAdjustmentLayerId)
+      if (layer) return layer.adjustments[adjKey]
+    }
+    return s.adjustments[adjKey]
+  })
   const setAdjustment = useEditorStore(s => s.setAdjustment)
   const imageEl = useEditorStore(s => s.imageEl)
   const pushHistory = useEditorStore(s => s.pushHistory)
@@ -428,11 +435,13 @@ function PresetGrid() {
 // ─── Right Panel ──────────────────────────────────────────────────────────────
 export function RightPanel() {
   const imageEl = useEditorStore(s => s.imageEl)
+  const activeAdjustmentLayerId = useEditorStore(s => s.activeAdjustmentLayerId)
+  const activeAdjustmentLayer = useEditorStore(s => s.adjustmentLayers.find(l => l.id === s.activeAdjustmentLayerId))
   const resetSectionKeys = useEditorStore(s => s.resetSectionKeys)
   const pushHistory = useEditorStore(s => s.pushHistory)
-  const curves = useEditorStore(s => s.curves)
+  const curves = useEditorStore(s => activeAdjustmentLayer ? activeAdjustmentLayer.curves : s.curves)
   const setCurvesChannel = useEditorStore(s => s.setCurvesChannel)
-  const colorGrading = useEditorStore(s => s.colorGrading)
+  const colorGrading = useEditorStore(s => activeAdjustmentLayer ? activeAdjustmentLayer.colorGrading : s.colorGrading)
   const setColorGradingChannel = useEditorStore(s => s.setColorGradingChannel)
 
   const [curveChannel, setCurveChannel] = useState<'rgb' | 'red' | 'green' | 'blue'>('rgb')
@@ -551,6 +560,37 @@ export function RightPanel() {
     showToast(`Exported as ${exportFormat.toUpperCase()}`)
   }
 
+  const setActiveAdjustmentLayer = useEditorStore(s => s.setActiveAdjustmentLayer)
+  const activeTool = useEditorStore(s => s.activeTool)
+  const setActiveTool = useEditorStore(s => s.setActiveTool)
+  
+  // Custom event or state for mask settings if we want RightPanel to share it
+  // Let's read/write mask brush settings. We can save them to window or a global ref, or keep them local.
+  // Actually, we can dispatch/listen or store in window context for Canvas.tsx to read.
+  const [maskBrushSize, setMaskBrushSize] = useState(() => {
+    return parseInt(localStorage.getItem('lumio_mask_brush_size') || '30')
+  })
+  const [isMaskEraser, setIsMaskEraser] = useState(() => {
+    return localStorage.getItem('lumio_is_mask_eraser') === 'true'
+  })
+
+  useEffect(() => {
+    localStorage.setItem('lumio_mask_brush_size', maskBrushSize.toString())
+    window.dispatchEvent(new CustomEvent('lumio_mask_brush_size_change', { detail: maskBrushSize }))
+  }, [maskBrushSize])
+
+  useEffect(() => {
+    localStorage.setItem('lumio_is_mask_eraser', isMaskEraser.toString())
+    window.dispatchEvent(new CustomEvent('lumio_is_mask_eraser_change', { detail: isMaskEraser }))
+  }, [isMaskEraser])
+
+  // Listen to tool changes to potentially toggle eraser off
+  useEffect(() => {
+    if (activeTool !== 'mask') {
+      // do nothing
+    }
+  }, [activeTool])
+
   const HSL_COLORS = [
     { name: 'Red' as HSLName,    bg: 'hsl(0,72%,48%)' },
     { name: 'Orange' as HSLName, bg: 'hsl(28,82%,52%)' },
@@ -561,7 +601,10 @@ export function RightPanel() {
   ]
 
   const activeHSLName = HSL_NAMES[activeHSL]
-  const activeHSLData = hsl[activeHSLName]
+  
+  // Adjust HSL source based on active adjustment layer
+  const currentHSL = activeAdjustmentLayer ? activeAdjustmentLayer.hsl : hsl
+  const activeHSLData = currentHSL[activeHSLName]
 
   function hslSliderChange(prop: 'h' | 's' | 'l', e: React.ChangeEvent<HTMLInputElement>) {
     const v = parseInt(e.target.value)
@@ -586,6 +629,71 @@ export function RightPanel() {
           style={{ width: '100%', height: 50, display: 'block', borderRadius: 6 }}
         />
       </div>
+
+      {/* Active Layer Banner */}
+      {activeAdjustmentLayer && (
+        <div style={{
+          padding: '10px 12px',
+          background: 'var(--ag2)',
+          borderBottom: '1px solid var(--b1)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--t1)' }}>
+              Editing: <span style={{ color: 'var(--a)' }}>{activeAdjustmentLayer.name}</span>
+            </span>
+            <button
+              onClick={() => {
+                setActiveAdjustmentLayer(null)
+                if (activeTool === 'mask') setActiveTool('select')
+              }}
+              style={{
+                background: 'var(--s3)', border: '1px solid var(--b2)', borderRadius: 4,
+                color: 'var(--t1)', fontSize: 10, padding: '2px 8px', cursor: 'pointer',
+                fontWeight: 500, transition: 'all var(--fast)'
+              }}
+            >
+              Back to Global
+            </button>
+          </div>
+          
+          {/* Mask Brush Controls */}
+          {activeTool === 'mask' && (
+            <div style={{
+              display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4,
+              padding: '8px', background: 'var(--s2)', borderRadius: 'var(--r)',
+              border: '1px solid var(--b1)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
+                <span style={{ color: 'var(--t2)', fontWeight: 500 }}>Mask Brush Options</span>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: isMaskEraser ? 'var(--red)' : 'var(--t2)' }}>
+                  <input
+                    type="checkbox"
+                    checked={isMaskEraser}
+                    onChange={e => setIsMaskEraser(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span>Eraser Mode</span>
+                </label>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 10.5, color: 'var(--t3)', width: 50 }}>Brush Size</span>
+                <input
+                  type="range"
+                  min={5}
+                  max={120}
+                  value={maskBrushSize}
+                  onChange={e => setMaskBrushSize(parseInt(e.target.value))}
+                  style={{ flex: 1, height: 16 }}
+                />
+                <span style={{ fontSize: 10.5, color: 'var(--t2)', width: 24, textAlign: 'right' }}>{maskBrushSize}px</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Light */}
       <Section

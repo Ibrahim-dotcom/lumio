@@ -27,6 +27,7 @@ Lumio is a production-grade, AI-native image editing platform built for content 
 - **Color Grading Wheels** — Split-toning across shadows, midtones, and highlights with smooth luminance-weighted masking.
 - **Canvas Panning** — Spacebar-drag panning for efficient navigation across the canvas.
 - **Eyedropper Tool** — Pick exact pixel colors from the canvas with a floating preview ring to dynamically update Text and Shape layers.
+- **Adjustment Layers & Mask Painting** — Professional local adjustment layers. Add unlimited mask layers, paint white (mask brush) or erase (black eraser) directly on the local canvas masks with a red Quick Mask overlay, and apply local Exposure, Curves, HSL, and Color Grading adjustments selectively.
 
 ### Coming Next
 - Batch Processing & Workflow Engine
