@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from api.views import ProjectViewSet, ImageViewSet, EditHistoryViewSet, WorkflowViewSet
+from api.views import ProjectViewSet, ImageViewSet, EditHistoryViewSet, WorkflowViewSet, AIPlannerView
 from django.http import JsonResponse
 
 def health_check(request):
@@ -14,5 +14,6 @@ router.register(r'workflows', WorkflowViewSet, basename='workflow')
 
 urlpatterns = [
     path('health/', health_check),
+    path('ai/plan/', AIPlannerView.as_view(), name='ai-plan'),
     path('', include(router.urls)),
 ]

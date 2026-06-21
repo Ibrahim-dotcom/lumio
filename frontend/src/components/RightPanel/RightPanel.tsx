@@ -308,6 +308,13 @@ export function RightPanel() {
   const setExportQuality = useEditorStore(s => s.setExportQuality)
   const showToast = useEditorStore(s => s.showToast)
 
+  // Text Layers selectors
+  const textLayers = useEditorStore(s => s.textLayers)
+  const activeTextLayerId = useEditorStore(s => s.activeTextLayerId)
+  const updateTextLayer = useEditorStore(s => s.updateTextLayer)
+  const removeTextLayer = useEditorStore(s => s.removeTextLayer)
+  const setActiveTextLayer = useEditorStore(s => s.setActiveTextLayer)
+
   // Expose the histogram canvas ref so Canvas.tsx can use it
   useEffect(() => {
     // Canvas component draws the histogram onto a hidden canvas,
@@ -325,6 +332,29 @@ export function RightPanel() {
     if (!imageEl) return showToast('Load a photo first', true)
     const cv = document.querySelector<HTMLCanvasElement>('#lumio-main-canvas')
     if (!cv) return showToast('Canvas not ready', true)
+    const ctx = cv.getContext('2d')!
+    const tempImage = ctx.getImageData(0, 0, cv.width, cv.height)
+    
+    // Draw text layers to the exported canvas at original image resolution
+    textLayers.forEach(layer => {
+      ctx.save()
+      ctx.globalAlpha = layer.opacity / 100
+      ctx.fillStyle = layer.color
+      
+      const canvasDisplayWidth = cv.getBoundingClientRect().width || cv.width
+      const scale = cv.width / canvasDisplayWidth
+      const naturalFontSize = layer.fontSize * scale
+      
+      ctx.font = `${layer.fontWeight} ${naturalFontSize}px sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      
+      const x = layer.x * cv.width
+      const y = layer.y * cv.height
+      ctx.fillText(layer.text, x, y)
+      ctx.restore()
+    })
+
     const q = exportQuality / 100
     const link = document.createElement('a')
     if (exportFormat === 'png') {
@@ -338,6 +368,8 @@ export function RightPanel() {
       link.download = 'lumio-export.jpg'
     }
     link.click()
+
+    ctx.putImageData(tempImage, 0, 0)
     showToast(`Exported as ${exportFormat.toUpperCase()}`)
   }
 
@@ -483,6 +515,132 @@ export function RightPanel() {
       <Section id="sec-presets" title="Presets">
         <PresetGrid />
       </Section>
+
+      {/* Text Layers Panel */}
+      {(textLayers.length > 0 || useEditorStore.getState().activeTool === 'text') && (
+        <Section id="sec-text" title="Text Layers">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {textLayers.map((layer) => {
+              const isSelected = activeTextLayerId === layer.id
+              return (
+                <div
+                  key={layer.id}
+                  onClick={() => setActiveTextLayer(layer.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '6px 10px',
+                    borderRadius: 'var(--r)',
+                    background: isSelected ? 'var(--s3)' : 'var(--s2)',
+                    border: `1px solid ${isSelected ? 'var(--a)' : 'var(--b1)'}`,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span style={{ fontSize: 12, color: 'var(--t1)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: 140 }}>
+                    {layer.text}
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      removeTextLayer(layer.id)
+                      pushHistory('Delete Text Layer')
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--t3)',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.color = 'var(--red)'}
+                    onMouseLeave={e => e.currentTarget.style.color = 'var(--t3)'}
+                  >
+                    Delete
+                  </button>
+                </div>
+              )
+            })}
+
+            {/* Selected Text Layer Details */}
+            {activeTextLayerId && (() => {
+              const layer = textLayers.find(l => l.id === activeTextLayerId)
+              if (!layer) return null
+              return (
+                <div style={{ borderTop: '1px solid var(--b2)', paddingTop: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)' }}>Layer Properties</div>
+                  
+                  {/* Text Edit */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: 'var(--t3)' }}>Text Content</span>
+                    <input
+                      type="text"
+                      value={layer.text}
+                      onChange={(e) => updateTextLayer(layer.id, { text: e.target.value })}
+                      style={{
+                        height: 28, background: 'var(--s2)',
+                        border: '1px solid var(--b1)', borderRadius: 'var(--r)',
+                        padding: '0 8px', fontSize: 12, color: 'var(--t1)',
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+
+                  {/* Font Size */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--t2)', width: 80, flexShrink: 0 }}>Font Size</span>
+                    <input
+                      type="range"
+                      min={10}
+                      max={120}
+                      value={layer.fontSize}
+                      onChange={(e) => updateTextLayer(layer.id, { fontSize: parseInt(e.target.value) })}
+                      style={{ width: '100%' }}
+                    />
+                    <span style={{ fontSize: 11, color: 'var(--t2)', width: 28, textAlign: 'right' }}>{layer.fontSize}px</span>
+                  </div>
+
+                  {/* Opacity */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--t2)', width: 80, flexShrink: 0 }}>Opacity</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={layer.opacity}
+                      onChange={(e) => updateTextLayer(layer.id, { opacity: parseInt(e.target.value) })}
+                      style={{ width: '100%' }}
+                    />
+                    <span style={{ fontSize: 11, color: 'var(--t2)', width: 28, textAlign: 'right' }}>{layer.opacity}%</span>
+                  </div>
+
+                  {/* Style & Color */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 11.5, color: 'var(--t2)' }}>Bold</span>
+                      <input
+                        type="checkbox"
+                        checked={layer.fontWeight === 'bold'}
+                        onChange={(e) => updateTextLayer(layer.id, { fontWeight: e.target.checked ? 'bold' : 'normal' })}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 11.5, color: 'var(--t2)' }}>Color</span>
+                      <input
+                        type="color"
+                        value={layer.color}
+                        onChange={(e) => updateTextLayer(layer.id, { color: e.target.value })}
+                        style={{ width: 30, height: 20, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+        </Section>
+      )}
 
       {/* Export */}
       <Section id="sec-export" title="Export">

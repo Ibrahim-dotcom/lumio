@@ -4,13 +4,15 @@ import { useEditorStore } from '../../store/editorStore'
 import type { Tool } from '../../store/editorStore'
 import {
   MousePointer2, Crop, Sparkles, Pipette,
-  Undo2, Redo2, RotateCcw, Download
+  Undo2, Redo2, RotateCcw, Download, Stamp, Type
 } from 'lucide-react'
 
 const TOOLS: { id: Tool; label: string; icon: React.ReactNode; key: string }[] = [
   { id: 'select', label: 'Select', icon: <MousePointer2 size={13} strokeWidth={1.8} />, key: 'V' },
   { id: 'crop',   label: 'Crop',   icon: <Crop size={13} strokeWidth={1.8} />,          key: 'C' },
   { id: 'heal',   label: 'Heal',   icon: <Sparkles size={13} strokeWidth={1.8} />,      key: 'H' },
+  { id: 'stamp',  label: 'Stamp',  icon: <Stamp size={13} strokeWidth={1.8} />,         key: 'S' },
+  { id: 'text',   label: 'Text',   icon: <Type size={13} strokeWidth={1.8} />,           key: 'T' },
   { id: 'pick',   label: 'Pick',   icon: <Pipette size={13} strokeWidth={1.8} />,       key: 'I' },
 ]
 
@@ -93,7 +95,7 @@ export function Toolbar() {
           flexShrink: 0,
         }}>
           <div className="animate-blink" style={{ width: 5, height: 5, borderRadius: '50%', background: 'rgba(255,255,255,0.7)' }} />
-          Claude AI
+          Lumio AI
         </div>
 
         <div style={{ width: 1, height: 20, background: 'var(--b2)', flexShrink: 0 }} />

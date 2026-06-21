@@ -2,7 +2,7 @@ import React, {
   useRef, useEffect, useCallback, useState
 } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useEditorStore } from '../../store/editorStore'
+import { useEditorStore, type TextLayer } from '../../store/editorStore'
 import { pixelPipeline, drawHistogram } from '../../engine/pixelPipeline'
 import { ZoomIn, ZoomOut, Maximize2, Columns2, ImageIcon, RotateCcw, RotateCw, Check, X } from 'lucide-react'
 import * as api from '../../services/api'
@@ -101,14 +101,21 @@ export function Canvas() {
   const projectId = useEditorStore(s => s.projectId)
   const setBackendIds = useEditorStore(s => s.setBackendIds)
 
+  // Text Layers selectors
+  const textLayers = useEditorStore(s => s.textLayers)
+  const addTextLayer = useEditorStore(s => s.addTextLayer)
+  const activeTextLayerId = useEditorStore(s => s.activeTextLayerId)
+
   const [brushSize, setBrushSize] = useState(20)
   const [isBrushing, setIsBrushing] = useState(false)
   const [isHealing, setIsHealing] = useState(false)
+  const [stampSource, setStampSource] = useState<{ x: number; y: number } | null>(null)
+  const [isCloning, setIsCloning] = useState(false)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
 
   // Keep overlay canvas size in sync with target canvas
   useEffect(() => {
-    if (activeTool === 'heal' && overlayCanvasRef.current && canvasRef.current) {
+    if ((activeTool === 'heal' || activeTool === 'stamp') && overlayCanvasRef.current && canvasRef.current) {
       overlayCanvasRef.current.width = canvasRef.current.width
       overlayCanvasRef.current.height = canvasRef.current.height
     }
@@ -235,12 +242,11 @@ export function Canvas() {
   const handleOverlayMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (isBrushing || !overlayCanvasRef.current) return
     const canvas = overlayCanvasRef.current
-    const ctx = canvas.getContext('2d')!
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-
     const rect = canvas.getBoundingClientRect()
     const clientX = e.clientX - rect.left
     const clientY = e.clientY - rect.top
+    const ctx = canvas.getContext('2d')!
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
 
     ctx.beginPath()
     ctx.arc(clientX, clientY, brushSize, 0, Math.PI * 2)
@@ -250,6 +256,232 @@ export function Canvas() {
     ctx.fill()
     ctx.stroke()
   }, [isBrushing, brushSize])
+
+  // ─── Clone Stamp request & mouse events ──────────────────────────────────────
+  const handleStampRequest = useCallback(async (srcX: number, srcY: number, strokes: [number, number, number][]) => {
+    if (!imageEl) return
+    setIsCloning(true)
+    showToast('Cloning pixels...')
+
+    let activeImageId = backendImageId
+    let activeProjectId = projectId
+
+    if (!activeImageId) {
+      showToast('Syncing image with server...')
+      try {
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          const canvas = document.createElement('canvas')
+          canvas.width = imageEl.naturalWidth || imageEl.width
+          canvas.height = imageEl.naturalHeight || imageEl.height
+          canvas.getContext('2d')!.drawImage(imageEl, 0, 0)
+          canvas.toBlob(b => b ? resolve(b) : reject(new Error('blob null')), 'image/png')
+        })
+        const file = new File([blob], imageName || 'canvas-export.png', { type: 'image/png' })
+        if (!activeProjectId) {
+          const project = await api.createProject(imageName?.replace(/\.[^/.]+$/, '') || 'Untitled')
+          activeProjectId = project.id
+        }
+        const uploaded = await api.uploadImage(activeProjectId, file)
+        activeImageId = uploaded.id
+        setBackendIds(activeProjectId, activeImageId)
+      } catch (err) {
+        showToast('Failed to sync image with server', true)
+        setIsCloning(false)
+        const canvas = overlayCanvasRef.current
+        if (canvas) canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height)
+        return
+      }
+    }
+
+    try {
+      void await api.cloneStamp(activeImageId, srcX, srcY, strokes)
+      const deadline = Date.now() + 60000
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 1500))
+        const status = await api.getTaskStatus(activeImageId)
+        if (status.processed_file) {
+          const backendRoot = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+          const url = status.processed_file.startsWith('http')
+            ? status.processed_file
+            : `${backendRoot}${status.processed_file}`
+
+          const img = new Image()
+          img.crossOrigin = 'anonymous'
+          img.onload = () => {
+            swapImage(img, imageName, imageSize)
+            pushHistory('Clone Stamp')
+            showToast('Cloned pixels!')
+            setIsCloning(false)
+            const canvas = overlayCanvasRef.current
+            if (canvas) canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height)
+          }
+          img.src = url
+          return
+        }
+      }
+      throw new Error('Clone stamp timed out')
+    } catch (err) {
+      showToast('Cloning failed', true)
+      setIsCloning(false)
+      const canvas = overlayCanvasRef.current
+      if (canvas) canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height)
+    }
+  }, [imageEl, backendImageId, projectId, swapImage, imageName, imageSize, pushHistory, showToast, setBackendIds])
+
+  const drawStampOverlay = useCallback((
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    source: { x: number; y: number } | null,
+    cursorX: number,
+    cursorY: number
+  ) => {
+    if (!imageEl) return
+    ctx.clearRect(0, 0, width, height)
+
+    // Brush outline
+    ctx.beginPath()
+    ctx.arc(cursorX, cursorY, brushSize, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
+    ctx.strokeStyle = '#fff'
+    ctx.lineWidth = 1
+    ctx.fill()
+    ctx.stroke()
+
+    if (source) {
+      const W = imageEl.naturalWidth
+      const H = imageEl.naturalHeight
+      const srcCX = (source.x / W) * width
+      const srcCY = (source.y / H) * height
+
+      // Crosshair
+      ctx.beginPath()
+      ctx.arc(srcCX, srcCY, 8, 0, Math.PI * 2)
+      ctx.moveTo(srcCX - 12, srcCY)
+      ctx.lineTo(srcCX + 12, srcCY)
+      ctx.moveTo(srcCX, srcCY - 12)
+      ctx.lineTo(srcCX, srcCY + 12)
+      ctx.strokeStyle = '#00ff66'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+
+      ctx.fillStyle = '#00ff66'
+      ctx.font = '10px sans-serif'
+      ctx.fillText('Source', srcCX + 14, srcCY - 4)
+
+      // Connecting line
+      ctx.beginPath()
+      ctx.setLineDash([4, 4])
+      ctx.moveTo(srcCX, srcCY)
+      ctx.lineTo(cursorX, cursorY)
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'
+      ctx.lineWidth = 1
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+  }, [imageEl, brushSize])
+
+  const handleStampMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!imageEl || !overlayCanvasRef.current) return
+    const canvas = overlayCanvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    const W = imageEl.naturalWidth
+    const H = imageEl.naturalHeight
+
+    const clientX = e.clientX - rect.left
+    const clientY = e.clientY - rect.top
+    const px = (clientX / rect.width) * W
+    const py = (clientY / rect.height) * H
+
+    if (e.altKey) {
+      setStampSource({ x: px, y: py })
+      showToast(`Source set at: ${Math.round(px)}px, ${Math.round(py)}px`)
+      const ctx = canvas.getContext('2d')!
+      drawStampOverlay(ctx, rect.width, rect.height, { x: px, y: py }, clientX, clientY)
+      return
+    }
+
+    if (!stampSource) {
+      showToast('Alt + Click to select clone source first!', true)
+      return
+    }
+
+    setIsBrushing(true)
+    const ctx = canvas.getContext('2d')!
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = 'rgba(100, 255, 100, 0.45)'
+    ctx.lineWidth = brushSize * 2
+    ctx.beginPath()
+    ctx.moveTo(clientX, clientY)
+
+    const pr = (brushSize / rect.width) * W
+    const newStrokes: [number, number, number][] = [[px, py, pr]]
+
+    function handleMouseMove(ev: MouseEvent) {
+      const cX = ev.clientX - rect.left
+      const cY = ev.clientY - rect.top
+      const ipx = (cX / rect.width) * W
+      const ipy = (cY / rect.height) * H
+
+      ctx.lineTo(cX, cY)
+      ctx.stroke()
+      drawStampOverlay(ctx, rect.width, rect.height, stampSource, cX, cY)
+
+      newStrokes.push([ipx, ipy, pr])
+    }
+
+    function handleMouseUp() {
+      setIsBrushing(false)
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+      if (stampSource) {
+        handleStampRequest(stampSource.x, stampSource.y, newStrokes)
+      }
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }, [imageEl, brushSize, stampSource, handleStampRequest, drawStampOverlay, showToast])
+
+  const handleStampMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isBrushing || !overlayCanvasRef.current) return
+    const canvas = overlayCanvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    const clientX = e.clientX - rect.left
+    const clientY = e.clientY - rect.top
+    const ctx = canvas.getContext('2d')!
+    drawStampOverlay(ctx, rect.width, rect.height, stampSource, clientX, clientY)
+  }, [isBrushing, stampSource, drawStampOverlay])
+
+  // ─── Text Layer placement click ──────────────────────────────────────────────
+  const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (activeTool !== 'text' || !imageEl || !canvasRef.current) return
+    const target = e.target as HTMLElement
+    if (target.closest('.lumio-text-layer')) return
+
+    const canvas = canvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    const clientX = e.clientX - rect.left
+    const clientY = e.clientY - rect.top
+    const rx = clientX / rect.width
+    const ry = clientY / rect.height
+
+    const newLayer: TextLayer = {
+      id: 'text-' + Date.now(),
+      text: 'Double click to edit',
+      x: rx,
+      y: ry,
+      fontSize: 24,
+      color: '#ffffff',
+      fontWeight: 'normal',
+      opacity: 100,
+    }
+
+    addTextLayer(newLayer)
+    pushHistory('Add Text Layer')
+    showToast('Text layer added')
+  }, [activeTool, imageEl, addTextLayer, pushHistory, showToast])
 
   // ─── Render engine ──────────────────────────────────────────────────────────
   const renderCanvas = useCallback(() => {
@@ -453,10 +685,14 @@ export function Canvas() {
           )}
         </AnimatePresence>
 
-        {/* Canvas */}
-        <div style={{ position: 'relative', zIndex: 1, display: imageEl ? 'block' : 'none' }}>
+        {/* Canvas Container */}
+        <div 
+          onClick={handleCanvasClick}
+          style={{ position: 'relative', zIndex: 1, display: imageEl ? 'block' : 'none' }}
+        >
           <canvas
             ref={canvasRef}
+            id="lumio-main-canvas"
             style={{ display: 'block', borderRadius: 3, boxShadow: '0 0 0 1px var(--b2), 0 24px 72px rgba(0,0,0,0.75)' }}
           />
           {activeTool === 'crop' && (
@@ -482,6 +718,31 @@ export function Canvas() {
               }}
             />
           )}
+          {activeTool === 'stamp' && (
+            <canvas
+              ref={overlayCanvasRef}
+              onMouseDown={handleStampMouseDown}
+              onMouseMove={handleStampMouseMove}
+              style={{
+                position: 'absolute', inset: 0, zIndex: 10,
+                cursor: isCloning ? 'wait' : 'crosshair',
+                pointerEvents: isCloning ? 'none' : 'auto',
+                width: '100%', height: '100%',
+              }}
+            />
+          )}
+          {/* Text Layer overlays */}
+          {textLayers.map((layer) => {
+            const isSelected = activeTextLayerId === layer.id
+            return (
+              <TextLayerComponent
+                key={layer.id}
+                layer={layer}
+                isSelected={isSelected}
+                canvasRef={canvasRef}
+              />
+            )
+          })}
           {comparing && (
             <div style={{
               position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
@@ -558,7 +819,7 @@ export function Canvas() {
         </AnimatePresence>
 
         {/* Brush Size Float Bar */}
-        {activeTool === 'heal' && imageEl && (
+        {(activeTool === 'heal' || activeTool === 'stamp') && imageEl && (
           <div style={{
             position: 'absolute', bottom: 58, left: '50%', transform: 'translateX(-50%)',
             display: 'flex', alignItems: 'center', gap: 10,
@@ -838,6 +1099,106 @@ function CropOverlay({
           <Check size={14} /> Apply Crop
         </button>
       </div>
+    </div>
+  )
+}
+
+function TextLayerComponent({
+  layer,
+  isSelected,
+  canvasRef,
+}: {
+  layer: TextLayer
+  isSelected: boolean
+  canvasRef: React.RefObject<HTMLCanvasElement | null>
+}) {
+  const updateTextLayer = useEditorStore(s => s.updateTextLayer)
+  const setActiveTextLayer = useEditorStore(s => s.setActiveTextLayer)
+  const removeTextLayer = useEditorStore(s => s.removeTextLayer)
+  const pushHistory = useEditorStore(s => s.pushHistory)
+  const [isEditing, setIsEditing] = useState(false)
+  const divRef = useRef<HTMLDivElement>(null)
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (isEditing) return
+    e.preventDefault()
+    setActiveTextLayer(layer.id)
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const startX = e.clientX
+    const startY = e.clientY
+    const startXPct = layer.x
+    const startYPct = layer.y
+
+    function handleMouseMove(ev: MouseEvent) {
+      const dx = (ev.clientX - startX) / rect.width
+      const dy = (ev.clientY - startY) / rect.height
+      updateTextLayer(layer.id, {
+        x: Math.max(0, Math.min(1, startXPct + dx)),
+        y: Math.max(0, Math.min(1, startYPct + dy)),
+      })
+    }
+
+    function handleMouseUp() {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+      pushHistory('Move Text')
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }
+
+  useEffect(() => {
+    if (!isEditing) return
+    const handler = (e: MouseEvent) => {
+      if (divRef.current && !divRef.current.contains(e.target as Node)) {
+        setIsEditing(false)
+        if (divRef.current.innerText.trim() === '') {
+          removeTextLayer(layer.id)
+          pushHistory('Remove Empty Text')
+        } else {
+          updateTextLayer(layer.id, { text: divRef.current.innerText })
+          pushHistory('Update Text Content')
+        }
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [isEditing, layer.id, removeTextLayer, updateTextLayer, pushHistory])
+
+  return (
+    <div
+      ref={divRef}
+      onMouseDown={handleMouseDown}
+      onDoubleClick={() => {
+        setIsEditing(true)
+        setActiveTextLayer(layer.id)
+      }}
+      className="lumio-text-layer"
+      contentEditable={isEditing}
+      suppressContentEditableWarning
+      style={{
+        position: 'absolute',
+        left: `${layer.x * 100}%`,
+        top: `${layer.y * 100}%`,
+        transform: 'translate(-50%, -50%)',
+        fontSize: layer.fontSize,
+        color: layer.color,
+        fontWeight: layer.fontWeight,
+        opacity: layer.opacity / 100,
+        cursor: isEditing ? 'text' : 'move',
+        userSelect: isEditing ? 'text' : 'none',
+        outline: isSelected ? '1px dashed var(--a)' : 'none',
+        padding: '4px 8px',
+        whiteSpace: 'nowrap',
+        zIndex: isSelected ? 20 : 10,
+        fontFamily: 'sans-serif',
+      }}
+    >
+      {layer.text}
     </div>
   )
 }

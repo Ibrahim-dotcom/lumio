@@ -10,10 +10,18 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load .env file if present (development convenience)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / '.env')
+except ImportError:
+    pass  # python-dotenv not installed; use system env vars
 
 
 # Quick-start development settings - unsuitable for production
@@ -137,6 +145,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # CORS Config
 CORS_ALLOW_ALL_ORIGINS = True
+
+# AI / LLM
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 
 # Celery Configuration
 CELERY_BROKER_URL = 'redis://localhost:6379/0'

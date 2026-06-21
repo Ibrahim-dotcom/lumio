@@ -199,6 +199,15 @@ def run_spot_healing(self, image_id: str, stroke_points: list):
         img = _load_cv2(orig_path)
         h, w = img.shape[:2]
 
+        # Handle alpha channel (4 channels) for cv2.inpaint
+        has_alpha = len(img.shape) > 2 and img.shape[2] == 4
+        if has_alpha:
+            bgr = img[:, :, :3]
+            alpha = img[:, :, 3]
+        else:
+            bgr = img
+            alpha = None
+
         # Create single-channel binary mask
         mask = np.zeros((h, w), dtype=np.uint8)
 
@@ -207,7 +216,13 @@ def run_spot_healing(self, image_id: str, stroke_points: list):
             cv2.circle(mask, (x, y), r, 255, -1)
 
         # Inpaint using Telea algorithm
-        inpainted = cv2.inpaint(img, mask, 3, cv2.INPAINT_TELEA)
+        inpainted_bgr = cv2.inpaint(bgr, mask, 3, cv2.INPAINT_TELEA)
+
+        # Re-merge alpha channel if it existed
+        if has_alpha:
+            inpainted = cv2.merge([inpainted_bgr[:, :, 0], inpainted_bgr[:, :, 1], inpainted_bgr[:, :, 2], alpha])
+        else:
+            inpainted = inpainted_bgr
 
         base = os.path.splitext(os.path.basename(orig_path))[0]
         fname = f'healed_{base}.png'
@@ -221,3 +236,56 @@ def run_spot_healing(self, image_id: str, stroke_points: list):
         logger.exception('run_spot_healing failed for %s', image_id)
         raise self.retry(exc=exc)
 
+
+# ─── Task 4: Clone Stamp ──────────────────────────────────────────────────────
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=10)
+def run_clone_stamp(self, image_id: str, src_x: int, src_y: int, strokes: list):
+    """
+    Clone pixels from source region (src_x, src_y) to each destination stroke.
+    strokes is a list of [dst_x, dst_y, radius] in original image coordinates.
+    For each stroke point, a circular region of radius `r` centered at (dst_x, dst_y)
+    is replaced by the same-offset region from the source.
+    """
+    from api.models import Image as ImageModel
+    try:
+        instance = ImageModel.objects.get(id=image_id)
+    except ImageModel.DoesNotExist:
+        logger.error('run_clone_stamp: Image %s not found', image_id)
+        return f'Image {image_id} not found'
+
+    try:
+        orig_path = instance.original_file.path
+        img = _load_cv2(orig_path)
+        h, w = img.shape[:2]
+        result = img.copy()
+
+        for pt in strokes:
+            dst_x, dst_y, r = int(pt[0]), int(pt[1]), max(1, int(pt[2]))
+
+            # For each pixel in the destination circle, compute offset from
+            # first stroke point and copy from corresponding source location
+            y_grid, x_grid = np.mgrid[-r:r+1, -r:r+1]
+            circle_mask = x_grid**2 + y_grid**2 <= r**2
+
+            for dy in range(-r, r+1):
+                for dx in range(-r, r+1):
+                    if dx**2 + dy**2 > r**2:
+                        continue
+                    sy = src_y + dy
+                    sx = src_x + dx
+                    dy_ = dst_y + dy
+                    dx_ = dst_x + dx
+                    if 0 <= sy < h and 0 <= sx < w and 0 <= dy_ < h and 0 <= dx_ < w:
+                        result[dy_, dx_] = img[sy, sx]
+
+        base = os.path.splitext(os.path.basename(orig_path))[0]
+        fname = f'stamp_{base}.png'
+        _, buf = cv2.imencode('.png', result)
+        instance.processed_file.save(fname, ContentFile(buf.tobytes()), save=True)
+        logger.info('run_clone_stamp: saved %s', instance.processed_file.name)
+        return instance.processed_file.url
+
+    except Exception as exc:
+        logger.exception('run_clone_stamp failed for %s', image_id)
+        raise self.retry(exc=exc)

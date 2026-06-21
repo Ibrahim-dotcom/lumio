@@ -142,3 +142,27 @@ export async function saveEditHistory(
 export async function listEditHistory(projectId: string): Promise<ApiEditHistory[]> {
   return api<ApiEditHistory[]>(`/edits/?project=${projectId}`)
 }
+
+// ─── AI Planner Proxy ────────────────────────────────────────────────────────
+export async function callAIPlannerBackend(prompt: string): Promise<Record<string, unknown>> {
+  const result = await api<{ deltas: Record<string, unknown> }>('/ai/plan/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt }),
+  })
+  return result.deltas
+}
+
+// ─── Clone Stamp ─────────────────────────────────────────────────────────────
+export async function cloneStamp(
+  imageId: string,
+  srcX: number,
+  srcY: number,
+  strokes: [number, number, number][],
+): Promise<ApiTask> {
+  return api<ApiTask>(`/images/${imageId}/clone_stamp/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ src_x: srcX, src_y: srcY, strokes }),
+  })
+}

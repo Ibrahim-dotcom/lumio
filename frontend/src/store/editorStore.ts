@@ -67,7 +67,19 @@ export interface Layer {
 }
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
-export type Tool = 'select' | 'crop' | 'heal' | 'pick'
+export type Tool = 'select' | 'crop' | 'heal' | 'pick' | 'stamp' | 'text'
+
+// ─── Text Layer ─────────────────────────────────────────────────────────────
+export interface TextLayer {
+  id: string
+  text: string
+  x: number        // 0–1 fraction of canvas width
+  y: number        // 0–1 fraction of canvas height
+  fontSize: number // in display pixels, scaled on export
+  color: string
+  fontWeight: 'normal' | 'bold'
+  opacity: number  // 0–100
+}
 
 // ─── Export Format ──────────────────────────────────────────────────────────
 export type ExportFormat = 'jpeg' | 'png' | 'webp'
@@ -135,6 +147,14 @@ export interface EditorStore {
   saveCustomPreset: (name: string) => void
   deleteCustomPreset: (name: string) => void
 
+  // Text Layers
+  textLayers: TextLayer[]
+  addTextLayer: (layer: TextLayer) => void
+  updateTextLayer: (id: string, patch: Partial<TextLayer>) => void
+  removeTextLayer: (id: string) => void
+  activeTextLayerId: string | null
+  setActiveTextLayer: (id: string | null) => void
+
   // UI State
   editCount: number
   isProcessing: boolean
@@ -145,6 +165,23 @@ export interface EditorStore {
 
   toast: { message: string; isError: boolean; key: number } | null
   showToast: (msg: string, isError?: boolean) => void
+
+  // Chat State
+  chatMessages: ChatMessage[]
+  addChatMessage: (msg: ChatMessage) => void
+  clearChat: () => void
+}
+
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: number
+  actionCard?: {
+    type: 'adjustments' | 'background' | 'undo' | 'reset' | 'unknown'
+    summary: string
+    details?: string
+  }
 }
 
 export const useEditorStore = create<EditorStore>()(
@@ -334,5 +371,23 @@ export const useEditorStore = create<EditorStore>()(
 
     toast: null,
     showToast: (message, isError = false) => set({ toast: { message, isError, key: Date.now() } }),
+
+    // Chat State
+    chatMessages: [],
+    addChatMessage: (msg) => set(s => ({ chatMessages: [...s.chatMessages, msg] })),
+    clearChat: () => set({ chatMessages: [] }),
+
+    // Text Layers
+    textLayers: [],
+    activeTextLayerId: null,
+    addTextLayer: (layer) => set(s => ({ textLayers: [...s.textLayers, layer], activeTextLayerId: layer.id })),
+    updateTextLayer: (id, patch) => set(s => ({
+      textLayers: s.textLayers.map(l => l.id === id ? { ...l, ...patch } : l)
+    })),
+    removeTextLayer: (id) => set(s => ({
+      textLayers: s.textLayers.filter(l => l.id !== id),
+      activeTextLayerId: s.activeTextLayerId === id ? null : s.activeTextLayerId,
+    })),
+    setActiveTextLayer: (id) => set({ activeTextLayerId: id }),
   }))
 )
