@@ -17,6 +17,59 @@ export function Canvas() {
   const rafRef = useRef<number | null>(null)
   const [comparing, setComparing] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [isSpaceDown, setIsSpaceDown] = useState(false)
+  const [isPanning, setIsPanning] = useState(false)
+
+  // ─── Panning ────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.code === 'Space' && !e.repeat) {
+        e.preventDefault()
+        setIsSpaceDown(true)
+      }
+    }
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsSpaceDown(false)
+        setIsPanning(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [])
+
+  const handleStageMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isSpaceDown) return
+    e.preventDefault()
+    e.stopPropagation()
+    setIsPanning(true)
+    
+    let lastX = e.clientX
+    let lastY = e.clientY
+
+    function handleMouseMove(ev: MouseEvent) {
+      const dx = ev.clientX - lastX
+      const dy = ev.clientY - lastY
+      setPan(p => ({ x: p.x + dx, y: p.y + dy }))
+      lastX = ev.clientX
+      lastY = ev.clientY
+    }
+
+    function handleMouseUp() {
+      setIsPanning(false)
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }, [isSpaceDown])
 
   histCanvasRef = histRef
 
@@ -39,6 +92,8 @@ export function Canvas() {
   const processingStep = useEditorStore(s => s.processingStep)
   const toast = useEditorStore(s => s.toast)
   const history = useEditorStore(s => s.history)
+  const curves = useEditorStore(s => s.curves)
+  const colorGrading = useEditorStore(s => s.colorGrading)
 
   const [cropBox, setCropBox] = useState<CropBox>({
     x: 0.1, y: 0.1, w: 0.8, h: 0.8
@@ -105,11 +160,13 @@ export function Canvas() {
   const textLayers = useEditorStore(s => s.textLayers)
   const addTextLayer = useEditorStore(s => s.addTextLayer)
   const activeTextLayerId = useEditorStore(s => s.activeTextLayerId)
+  const updateTextLayer = useEditorStore(s => s.updateTextLayer)
 
   // Shape Layers selectors
   const shapeLayers = useEditorStore(s => s.shapeLayers)
   const addShapeLayer = useEditorStore(s => s.addShapeLayer)
   const activeShapeLayerId = useEditorStore(s => s.activeShapeLayerId)
+  const updateShapeLayer = useEditorStore(s => s.updateShapeLayer)
 
   const [drawingShape, setDrawingShape] = useState<{
     type: 'rect' | 'circle'
@@ -130,7 +187,7 @@ export function Canvas() {
 
   // Keep overlay canvas size in sync with target canvas
   useEffect(() => {
-    if ((activeTool === 'heal' || activeTool === 'stamp') && overlayCanvasRef.current && canvasRef.current) {
+    if ((activeTool === 'heal' || activeTool === 'stamp' || activeTool === 'pick') && overlayCanvasRef.current && canvasRef.current) {
       overlayCanvasRef.current.width = canvasRef.current.width
       overlayCanvasRef.current.height = canvasRef.current.height
     }
@@ -208,6 +265,7 @@ export function Canvas() {
   }, [imageEl, backendImageId, projectId, swapImage, imageName, imageSize, pushHistory, showToast, setBackendIds])
 
   const handleHealMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isSpaceDown) return
     if (!imageEl || !overlayCanvasRef.current) return
     setIsBrushing(true)
     const canvas = overlayCanvasRef.current
@@ -397,6 +455,7 @@ export function Canvas() {
   }, [imageEl, brushSize])
 
   const handleStampMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isSpaceDown) return
     if (!imageEl || !overlayCanvasRef.current) return
     const canvas = overlayCanvasRef.current
     const rect = canvas.getBoundingClientRect()
@@ -469,8 +528,108 @@ export function Canvas() {
     drawStampOverlay(ctx, rect.width, rect.height, stampSource, clientX, clientY)
   }, [isBrushing, stampSource, drawStampOverlay])
 
+  // ─── Pick Tool (Eyedropper) ──────────────────────────────────────────────────
+  const handlePickMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isSpaceDown) return
+    const canvas = canvasRef.current
+    const overlay = overlayCanvasRef.current
+    if (!canvas || !overlay) return
+    
+    const rect = overlay.getBoundingClientRect()
+    const clientX = e.clientX - rect.left
+    const clientY = e.clientY - rect.top
+
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+    const px = Math.min(canvas.width - 1, Math.max(0, Math.floor(clientX * scaleX)))
+    const py = Math.min(canvas.height - 1, Math.max(0, Math.floor(clientY * scaleY)))
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+    const pixel = ctx.getImageData(px, py, 1, 1).data
+    const hex = `#${[pixel[0], pixel[1], pixel[2]].map(x => x.toString(16).padStart(2, '0')).join('')}`
+    
+    const oCtx = overlay.getContext('2d')!
+    oCtx.clearRect(0, 0, overlay.width, overlay.height)
+
+    const cx = clientX * scaleX
+    const cy = clientY * scaleY
+    const radius = 25 * scaleX
+    const offset = 40 * scaleY
+
+    // Draw preview ring
+    oCtx.beginPath()
+    oCtx.arc(cx, cy - offset, radius, 0, Math.PI * 2)
+    oCtx.fillStyle = hex
+    oCtx.fill()
+    
+    oCtx.beginPath()
+    oCtx.arc(cx, cy - offset, radius, 0, Math.PI * 2)
+    oCtx.strokeStyle = '#fff'
+    oCtx.lineWidth = 3 * scaleX
+    oCtx.stroke()
+
+    oCtx.beginPath()
+    oCtx.arc(cx, cy - offset, radius, 0, Math.PI * 2)
+    oCtx.strokeStyle = 'rgba(0,0,0,0.3)'
+    oCtx.lineWidth = 5 * scaleX
+    oCtx.stroke()
+
+    // Crosshair
+    oCtx.beginPath()
+    oCtx.moveTo(cx - 5 * scaleX, cy)
+    oCtx.lineTo(cx + 5 * scaleX, cy)
+    oCtx.moveTo(cx, cy - 5 * scaleX)
+    oCtx.lineTo(cx, cy + 5 * scaleX)
+    oCtx.strokeStyle = (pixel[0] + pixel[1] + pixel[2] > 382) ? '#000' : '#fff'
+    oCtx.lineWidth = 1 * scaleX
+    oCtx.stroke()
+  }, [isSpaceDown])
+
+  const handlePickMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isSpaceDown) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    
+    const rect = canvas.getBoundingClientRect()
+    const clientX = e.clientX - rect.left
+    const clientY = e.clientY - rect.top
+
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+    const px = Math.min(canvas.width - 1, Math.max(0, Math.floor(clientX * scaleX)))
+    const py = Math.min(canvas.height - 1, Math.max(0, Math.floor(clientY * scaleY)))
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+    const pixel = ctx.getImageData(px, py, 1, 1).data
+    const hex = `#${[pixel[0], pixel[1], pixel[2]].map(x => x.toString(16).padStart(2, '0')).join('')}`
+    
+    navigator.clipboard.writeText(hex).catch(() => {})
+    showToast(`Picked color ${hex.toUpperCase()} (copied)`)
+
+    if (activeTextLayerId) {
+      updateTextLayer(activeTextLayerId, { color: hex })
+      pushHistory('Pick Color for Text')
+    } else if (activeShapeLayerId) {
+      updateShapeLayer(activeShapeLayerId, { fill: hex })
+      pushHistory('Pick Color for Shape')
+    }
+
+    if (overlayCanvasRef.current) {
+      overlayCanvasRef.current.getContext('2d')!.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height)
+    }
+
+    setActiveTool('select')
+  }, [isSpaceDown, activeTextLayerId, activeShapeLayerId, updateTextLayer, updateShapeLayer, pushHistory, showToast, setActiveTool])
+
+  const handlePickMouseLeave = useCallback(() => {
+    if (overlayCanvasRef.current) {
+      overlayCanvasRef.current.getContext('2d')!.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height)
+    }
+  }, [])
+
   // ─── Text Layer placement click ──────────────────────────────────────────────
   const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (isSpaceDown || isPanning) return
     if (activeTool !== 'text' || !imageEl || !canvasRef.current) return
     const target = e.target as HTMLElement
     if (target.closest('.lumio-text-layer')) return
@@ -500,6 +659,7 @@ export function Canvas() {
 
   // ─── Shape Layer placement / drag drawing ───────────────────────────────────
   const handleShapeMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (isSpaceDown) return
     if ((activeTool !== 'rect' && activeTool !== 'circle') || !imageEl || !canvasRef.current) return
     e.preventDefault()
     const canvas = canvasRef.current
@@ -591,13 +751,13 @@ export function Canvas() {
     ctx.drawImage(originalImg, 0, 0)
 
     if (!comparing) {
-      pixelPipeline(ctx, W, H, adjustments)
+      pixelPipeline(ctx, W, H, adjustments, curves, colorGrading)
     }
 
     if (histRef.current) {
       drawHistogram(ctx, W, H, histRef.current)
     }
-  }, [imageEl, adjustments, zoom, comparing, history])
+  }, [imageEl, adjustments, curves, colorGrading, zoom, comparing, history])
 
   const schedRender = useCallback(() => {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
@@ -708,6 +868,7 @@ export function Canvas() {
         onDragOver={handleStageDragOver}
         onDragLeave={handleStageDragLeave}
         onDrop={handleStageDrop}
+        onMouseDown={handleStageMouseDown}
         style={{
           flex: 1,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -715,6 +876,7 @@ export function Canvas() {
           background: 'var(--s0)',
           outline: isDragging ? '2px dashed var(--a)' : 'none',
           outlineOffset: isDragging ? -3 : 0,
+          cursor: isSpaceDown ? (isPanning ? 'grabbing' : 'grab') : 'default',
         }}
       >
         {/* Grid */}
@@ -779,7 +941,12 @@ export function Canvas() {
         <div 
           onClick={handleCanvasClick}
           onMouseDown={handleShapeMouseDown}
-          style={{ position: 'relative', zIndex: 1, display: imageEl ? 'block' : 'none' }}
+          style={{ 
+            position: 'relative', 
+            zIndex: 1, 
+            display: imageEl ? 'block' : 'none',
+            transform: `translate(${pan.x}px, ${pan.y}px)`,
+          }}
         >
           <canvas
             ref={canvasRef}
@@ -818,6 +985,20 @@ export function Canvas() {
                 position: 'absolute', inset: 0, zIndex: 10,
                 cursor: isCloning ? 'wait' : 'crosshair',
                 pointerEvents: isCloning ? 'none' : 'auto',
+                width: '100%', height: '100%',
+              }}
+            />
+          )}
+          {activeTool === 'pick' && (
+            <canvas
+              ref={overlayCanvasRef}
+              onMouseDown={handlePickMouseDown}
+              onMouseMove={handlePickMouseMove}
+              onMouseLeave={handlePickMouseLeave}
+              style={{
+                position: 'absolute', inset: 0, zIndex: 10,
+                cursor: 'crosshair',
+                pointerEvents: 'auto',
                 width: '100%', height: '100%',
               }}
             />
@@ -974,7 +1155,7 @@ export function Canvas() {
             </div>
             <FloatBtn onClick={() => deltaZoom(0.15)} title="Zoom in"><ZoomIn size={13} strokeWidth={2} /></FloatBtn>
             <div style={{ width: 1, background: 'var(--b1)', alignSelf: 'stretch' }} />
-            <FloatBtn onClick={() => setZoom(1)} title="Fit to screen"><Maximize2 size={13} strokeWidth={2} /></FloatBtn>
+            <FloatBtn onClick={() => { setZoom(1); setPan({x: 0, y: 0}) }} title="Fit to screen"><Maximize2 size={13} strokeWidth={2} /></FloatBtn>
           </div>
         )}
 

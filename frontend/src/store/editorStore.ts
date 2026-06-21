@@ -48,11 +48,47 @@ export const DEFAULT_HSL: HSLState = {
   Blue:   { h: 0, s: 0, l: 0 },
 }
 
+// ─── Curves ──────────────────────────────────────────────────────────────────
+export interface Point { x: number; y: number }
+export interface CurvesState {
+  rgb: Point[]
+  red: Point[]
+  green: Point[]
+  blue: Point[]
+}
+
+export const DEFAULT_CURVES: CurvesState = {
+  rgb: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
+  red: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
+  green: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
+  blue: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
+}
+
+// ─── Color Grading ───────────────────────────────────────────────────────────
+export interface GradingWheel {
+  h: number // 0 to 360
+  s: number // 0 to 100
+  l: number // -100 to 100
+}
+export interface ColorGradingState {
+  shadows: GradingWheel
+  midtones: GradingWheel
+  highlights: GradingWheel
+}
+
+export const DEFAULT_COLOR_GRADING: ColorGradingState = {
+  shadows: { h: 0, s: 0, l: 0 },
+  midtones: { h: 0, s: 0, l: 0 },
+  highlights: { h: 0, s: 0, l: 0 },
+}
+
 // ─── History Entry ──────────────────────────────────────────────────────────
 export interface HistoryEntry {
   label: string
   adjustments: Adjustments
   hsl: HSLState
+  curves: CurvesState
+  colorGrading: ColorGradingState
   timestamp: number
   imageEl?: HTMLImageElement
 }
@@ -129,6 +165,14 @@ export interface EditorStore {
   activeHSL: number
   setActiveHSL: (idx: number) => void
   setHSLChannel: (color: HSLName, prop: 'h' | 's' | 'l', value: number) => void
+
+  // Curves
+  curves: CurvesState
+  setCurvesChannel: (channel: keyof CurvesState, points: Point[]) => void
+
+  // Color Grading
+  colorGrading: ColorGradingState
+  setColorGradingChannel: (channel: keyof ColorGradingState, prop: keyof GradingWheel, value: number) => void
 
   // History (non-destructive)
   history: HistoryEntry[]
@@ -224,6 +268,8 @@ export const useEditorStore = create<EditorStore>()(
         imageSize: size,
         adjustments: { ...DEFAULT_ADJUSTMENTS },
         hsl: JSON.parse(JSON.stringify(DEFAULT_HSL)),
+        curves: JSON.parse(JSON.stringify(DEFAULT_CURVES)),
+        colorGrading: JSON.parse(JSON.stringify(DEFAULT_COLOR_GRADING)),
         history: [],
         historyIndex: -1,
         editCount: 0,
@@ -244,6 +290,9 @@ export const useEditorStore = create<EditorStore>()(
       imageName: '',
       imageSize: 0,
       adjustments: { ...DEFAULT_ADJUSTMENTS },
+      hsl: JSON.parse(JSON.stringify(DEFAULT_HSL)),
+      curves: JSON.parse(JSON.stringify(DEFAULT_CURVES)),
+      colorGrading: JSON.parse(JSON.stringify(DEFAULT_COLOR_GRADING)),
       history: [],
       historyIndex: -1,
       editCount: 0,
@@ -287,7 +336,12 @@ export const useEditorStore = create<EditorStore>()(
         return { adjustments: next }
       })
     },
-    resetAllAdjustments: () => set({ adjustments: { ...DEFAULT_ADJUSTMENTS }, hsl: JSON.parse(JSON.stringify(DEFAULT_HSL)) }),
+    resetAllAdjustments: () => set({
+      adjustments: { ...DEFAULT_ADJUSTMENTS },
+      hsl: JSON.parse(JSON.stringify(DEFAULT_HSL)),
+      curves: JSON.parse(JSON.stringify(DEFAULT_CURVES)),
+      colorGrading: JSON.parse(JSON.stringify(DEFAULT_COLOR_GRADING)),
+    }),
 
     // HSL
     hsl: JSON.parse(JSON.stringify(DEFAULT_HSL)),
@@ -299,16 +353,35 @@ export const useEditorStore = create<EditorStore>()(
       }))
     },
 
+    // Curves
+    curves: JSON.parse(JSON.stringify(DEFAULT_CURVES)),
+    setCurvesChannel: (channel, points) => {
+      set(s => ({ curves: { ...s.curves, [channel]: points } }))
+    },
+
+    // Color Grading
+    colorGrading: JSON.parse(JSON.stringify(DEFAULT_COLOR_GRADING)),
+    setColorGradingChannel: (channel, prop, value) => {
+      set(s => ({
+        colorGrading: {
+          ...s.colorGrading,
+          [channel]: { ...s.colorGrading[channel], [prop]: value }
+        }
+      }))
+    },
+
     // History
     history: [],
     historyIndex: -1,
     pushHistory: (label) => {
-      const { adjustments, hsl, history, historyIndex, imageEl } = get()
+      const { adjustments, hsl, curves, colorGrading, history, historyIndex, imageEl } = get()
       const newHistory = history.slice(0, historyIndex + 1)
       newHistory.push({
         label,
         adjustments: { ...adjustments },
         hsl: JSON.parse(JSON.stringify(hsl)),
+        curves: JSON.parse(JSON.stringify(curves)),
+        colorGrading: JSON.parse(JSON.stringify(colorGrading)),
         timestamp: Date.now(),
         imageEl: imageEl || undefined,
       })
@@ -321,6 +394,8 @@ export const useEditorStore = create<EditorStore>()(
       const nextState: any = {
         adjustments: { ...snap.adjustments },
         hsl: JSON.parse(JSON.stringify(snap.hsl)),
+        curves: JSON.parse(JSON.stringify(snap.curves || DEFAULT_CURVES)),
+        colorGrading: JSON.parse(JSON.stringify(snap.colorGrading || DEFAULT_COLOR_GRADING)),
         historyIndex: index,
       }
       if (snap.imageEl) {

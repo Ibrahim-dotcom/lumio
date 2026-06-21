@@ -1,17 +1,73 @@
-import type { Adjustments } from '../store/editorStore'
+import type { Adjustments, CurvesState, ColorGradingState } from '../store/editorStore'
 
-// ─── Clamp helper ────────────────────────────────────────────────────────────
 function clamp(v: number): number {
   return v < 0 ? 0 : v > 255 ? 255 : v | 0
 }
 
-// ─── Main pixel pipeline ─────────────────────────────────────────────────────
-// Deterministic pixel math equivalent to what libvips/OpenCV would do server-side.
-export function pixelPipeline(ctx: CanvasRenderingContext2D, W: number, H: number, a: Adjustments): void {
+function interpolateCurve(val: number, points: { x: number; y: number }[]): number {
+  if (!points || points.length === 0) return val
+  const sorted = [...points].sort((a, b) => a.x - b.x)
+  if (val <= sorted[0].x) return sorted[0].y
+  if (val >= sorted[sorted.length - 1].x) return sorted[sorted.length - 1].y
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const p1 = sorted[i]
+    const p2 = sorted[i + 1]
+    if (val >= p1.x && val <= p2.x) {
+      if (p2.x === p1.x) return p1.y
+      const t = (val - p1.x) / (p2.x - p1.x)
+      return p1.y + t * (p2.y - p1.y)
+    }
+  }
+  return val
+}
+
+function hueToRgbOffset(hue: number, sat: number): [number, number, number] {
+  if (sat === 0) return [0, 0, 0]
+  const rad = (hue * Math.PI) / 180
+  const r = Math.cos(rad)
+  const g = Math.cos(rad - (2 * Math.PI) / 3)
+  const b = Math.cos(rad + (2 * Math.PI) / 3)
+  const factor = (sat / 100) * 25
+  return [r * factor, g * factor, b * factor]
+}
+
+export function pixelPipeline(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  a: Adjustments,
+  curves?: CurvesState,
+  colorGrading?: ColorGradingState
+): void {
   const id = ctx.getImageData(0, 0, W, H)
   const d = id.data
 
-  // Pre-compute scalar factors once
+  // Precompute curves LUT
+  const lutR = new Uint8Array(256)
+  const lutG = new Uint8Array(256)
+  const lutB = new Uint8Array(256)
+  for (let i = 0; i < 256; i++) {
+    let r = curves ? interpolateCurve(i, curves.red) : i
+    let g = curves ? interpolateCurve(i, curves.green) : i
+    let b = curves ? interpolateCurve(i, curves.blue) : i
+
+    if (curves && curves.rgb) {
+      r = interpolateCurve(r, curves.rgb)
+      g = interpolateCurve(g, curves.rgb)
+      b = interpolateCurve(b, curves.rgb)
+    }
+
+    lutR[i] = r < 0 ? 0 : r > 255 ? 255 : r | 0
+    lutG[i] = g < 0 ? 0 : g > 255 ? 255 : g | 0
+    lutB[i] = b < 0 ? 0 : b > 255 ? 255 : b | 0
+  }
+
+  // Precompute color grading offsets
+  const [sR, sG, sB] = colorGrading ? hueToRgbOffset(colorGrading.shadows.h, colorGrading.shadows.s) : [0,0,0]
+  const [mR, mG, mB] = colorGrading ? hueToRgbOffset(colorGrading.midtones.h, colorGrading.midtones.s) : [0,0,0]
+  const [hR, hG, hB] = colorGrading ? hueToRgbOffset(colorGrading.highlights.h, colorGrading.highlights.s) : [0,0,0]
+
   const expF = Math.pow(2, (a.exposure / 100) * 2.2)
   const brt = (a.brightness / 100) * 85
   const conF = 1 + (a.contrast / 100) * 1.85
@@ -91,6 +147,26 @@ export function pixelPipeline(ctx: CanvasRenderingContext2D, W: number, H: numbe
       const vf = vibF * (1 - (mx2 - av) / 140) * 0.82
       const grv = 0.299 * r + 0.587 * g + 0.114 * b
       r = grv + (r - grv) * (1 + vf); g = grv + (g - grv) * (1 + vf); b = grv + (b - grv) * (1 + vf)
+    }
+
+    // 11.5 Curves mapping
+    r = lutR[clamp(r)]
+    g = lutG[clamp(g)]
+    b = lutB[clamp(b)]
+
+    // 11.6 Color grading (split-toning)
+    if (colorGrading) {
+      const lumCG = 0.299 * r + 0.587 * g + 0.114 * b
+      const wS = Math.pow(Math.max(0, 1 - lumCG / 128), 1.5)
+      const wH = Math.pow(Math.max(0, (lumCG - 128) / 128), 1.5)
+      const wM = Math.max(0, 1 - wS - wH)
+
+      r += sR * wS + mR * wM + hR * wH
+      g += sG * wS + mG * wM + hG * wH
+      b += sB * wS + mB * wM + hB * wH
+
+      const lOffset = (colorGrading.shadows.l * wS + colorGrading.midtones.l * wM + colorGrading.highlights.l * wH) * 0.4
+      r += lOffset; g += lOffset; b += lOffset
     }
 
     // 12. Clarity (local contrast)

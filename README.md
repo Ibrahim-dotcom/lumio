@@ -22,9 +22,13 @@ Lumio is a production-grade, AI-native image editing platform built for content 
 - **Canvas Pipeline** — Real-time pixel-level adjustment preview (no server round-trips).
 - **Before/After Compare** — Hold-to-compare against original image.
 - **Export** — JPEG/PNG/WebP with quality control.
+- **Shape Layers Tool** — Add and manipulate vector shape layers (rectangles and circles).
+- **Curves Editor** — Non-destructive RGB and per-channel curves via interactive UI, backed by high-performance 256-step interpolated lookup tables (LUTs).
+- **Color Grading Wheels** — Split-toning across shadows, midtones, and highlights with smooth luminance-weighted masking.
+- **Canvas Panning** — Spacebar-drag panning for efficient navigation across the canvas.
+- **Eyedropper Tool** — Pick exact pixel colors from the canvas with a floating preview ring to dynamically update Text and Shape layers.
 
 ### Coming Next
-- Shape Layers
 - Batch Processing & Workflow Engine
 - Sky Replacement
 - Content-Aware Fill / Object Removal

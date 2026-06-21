@@ -1,10 +1,142 @@
 import React, { useRef, useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, Download } from 'lucide-react'
-import { useEditorStore, HSL_NAMES } from '../../store/editorStore'
-import type { Adjustments, HSLName } from '../../store/editorStore'
+import { useEditorStore, HSL_NAMES, DEFAULT_CURVES, DEFAULT_COLOR_GRADING } from '../../store/editorStore'
+import type { Adjustments, HSLName, CurvesState, ColorGradingState, Point, GradingWheel } from '../../store/editorStore'
 import { PRESETS } from '../../data/presets'
 import { renderPresetPreview } from '../../engine/pixelPipeline'
+
+// ─── Color Grading Wheel component ──────────────────────────────────────────
+function ColorGradingWheel({
+  label,
+  value,
+  onChange,
+  onReset,
+}: {
+  label: string
+  value: GradingWheel
+  onChange: (prop: 'h' | 's' | 'l', val: number) => void
+  onReset: () => void
+}) {
+  const wheelRef = useRef<HTMLDivElement>(null)
+  const [isDragging, setIsDragging] = useState(false)
+
+  const R = 50 // wheel radius
+  const angleRad = (value.h * Math.PI) / 180
+  const dist = (value.s / 100) * R
+  const hx = R + dist * Math.cos(angleRad)
+  const hy = R + dist * Math.sin(angleRad)
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    setIsDragging(true)
+    updateColor(e)
+  }
+
+  const updateColor = (e: PointerEvent | React.PointerEvent) => {
+    if (!wheelRef.current) return
+    const rect = wheelRef.current.getBoundingClientRect()
+    const cx = rect.left + rect.width / 2
+    const cy = rect.top + rect.height / 2
+    const dx = e.clientX - cx
+    const dy = e.clientY - cy
+
+    let angle = Math.atan2(dy, dx) * (180 / Math.PI)
+    if (angle < 0) angle += 360
+    const distance = Math.min(R, Math.sqrt(dx * dx + dy * dy))
+    const sat = Math.round((distance / R) * 100)
+    const hue = Math.round(angle)
+
+    onChange('h', hue)
+    onChange('s', sat)
+  }
+
+  useEffect(() => {
+    if (!isDragging) return
+    const handlePointerMove = (e: PointerEvent) => {
+      updateColor(e)
+    }
+    const handlePointerUp = () => {
+      setIsDragging(false)
+      useEditorStore.getState().pushHistory(`Adjust Color Grading (${label})`)
+    }
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+    }
+  }, [isDragging])
+
+  const colorStr = `hsl(${value.h}, ${value.s}%, 50%)`
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, width: '100%', padding: '8px 0' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 11, color: 'var(--t2)', fontWeight: 500 }}>
+        <span style={{ fontSize: 11, color: 'var(--t1)', fontWeight: 600 }}>{label}</span>
+        <button onClick={onReset} style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', fontSize: 10 }}>Reset</button>
+      </div>
+
+      <div
+        ref={wheelRef}
+        onPointerDown={handlePointerDown}
+        style={{
+          position: 'relative',
+          width: R * 2,
+          height: R * 2,
+          borderRadius: '50%',
+          cursor: 'crosshair',
+          background: 'conic-gradient(from 0deg, red, yellow, lime, cyan, blue, magenta, red)',
+          boxShadow: 'inset 0 0 12px rgba(0,0,0,0.5)',
+          border: '1.5px solid var(--b2)',
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0) 85%)',
+            pointerEvents: 'none',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            left: hx - 5,
+            top: hy - 5,
+            width: 10,
+            height: 10,
+            borderRadius: '50%',
+            border: '1.5px solid #fff',
+            background: colorStr,
+            boxShadow: '0 0 4px rgba(0,0,0,0.8)',
+            pointerEvents: 'none',
+          }}
+        />
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, fontSize: 10, color: 'var(--t2)' }}>
+        <span>H: {value.h}°</span>
+        <span>S: {value.s}%</span>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+        <span style={{ fontSize: 11, color: 'var(--t2)', width: 60 }}>Luminance</span>
+        <input
+          type="range"
+          min={-100}
+          max={100}
+          value={value.l}
+          onChange={e => onChange('l', parseInt(e.target.value))}
+          style={{ flex: 1 }}
+          onPointerUp={() => useEditorStore.getState().pushHistory(`Adjust Color Grading (${label} Luminance)`)}
+        />
+        <span style={{ fontSize: 11, color: 'var(--t2)', width: 28, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{value.l}</span>
+      </div>
+    </div>
+  )
+}
 
 // ─── Slider component ─────────────────────────────────────────────────────────
 function Slider({
@@ -298,6 +430,14 @@ export function RightPanel() {
   const imageEl = useEditorStore(s => s.imageEl)
   const resetSectionKeys = useEditorStore(s => s.resetSectionKeys)
   const pushHistory = useEditorStore(s => s.pushHistory)
+  const curves = useEditorStore(s => s.curves)
+  const setCurvesChannel = useEditorStore(s => s.setCurvesChannel)
+  const colorGrading = useEditorStore(s => s.colorGrading)
+  const setColorGradingChannel = useEditorStore(s => s.setColorGradingChannel)
+
+  const [curveChannel, setCurveChannel] = useState<'rgb' | 'red' | 'green' | 'blue'>('rgb')
+  const [draggedPointIndex, setDraggedPointIndex] = useState<number | null>(null)
+  const [gradingTab, setGradingTab] = useState<'shadows' | 'midtones' | 'highlights'>('shadows')
   const hsl = useEditorStore(s => s.hsl)
   const activeHSL = useEditorStore(s => s.activeHSL)
   const setActiveHSL = useEditorStore(s => s.setActiveHSL)
@@ -523,6 +663,211 @@ export function RightPanel() {
             </div>
           )
         })}
+      </Section>
+
+      {/* Curves */}
+      <Section
+        id="sec-curves"
+        title="Curves"
+        onReset={() => {
+          setCurvesChannel('rgb', [{ x: 0, y: 0 }, { x: 255, y: 255 }])
+          setCurvesChannel('red', [{ x: 0, y: 0 }, { x: 255, y: 255 }])
+          setCurvesChannel('green', [{ x: 0, y: 0 }, { x: 255, y: 255 }])
+          setCurvesChannel('blue', [{ x: 0, y: 0 }, { x: 255, y: 255 }])
+          if (imageEl) pushHistory('Reset Curves')
+        }}
+      >
+        {/* Channel picker */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+          {(['rgb', 'red', 'green', 'blue'] as const).map(ch => (
+            <button
+              key={ch}
+              onClick={() => setCurveChannel(ch)}
+              style={{
+                flex: 1,
+                padding: '4px 0',
+                borderRadius: 4,
+                border: '1px solid transparent',
+                fontSize: 11,
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+                background: curveChannel === ch ? 'var(--s3)' : 'transparent',
+                borderColor: curveChannel === ch ? 'var(--b2)' : 'transparent',
+                color: curveChannel === ch
+                  ? ch === 'rgb' ? 'var(--t1)' : ch === 'red' ? 'var(--red)' : ch === 'green' ? 'var(--green)' : 'var(--a2)'
+                  : 'var(--t2)',
+                transition: 'all var(--fast)',
+              }}
+            >
+              {ch}
+            </button>
+          ))}
+        </div>
+
+        {/* SVG Curve Editor */}
+        <div style={{ position: 'relative', width: '100%', aspectRatio: '1', background: 'var(--s0)', border: '1px solid var(--b2)', borderRadius: 6, overflow: 'hidden' }}>
+          <svg
+            width="100%"
+            height="100%"
+            viewBox="0 0 256 256"
+            onMouseDown={e => {
+              const rect = e.currentTarget.getBoundingClientRect()
+              const x = Math.round(((e.clientX - rect.left) / rect.width) * 255)
+              const y = Math.round((1 - (e.clientY - rect.top) / rect.height) * 255)
+
+              const pts = curves[curveChannel] || [{ x: 0, y: 0 }, { x: 255, y: 255 }]
+              const threshold = 12
+              const index = pts.findIndex(p => Math.abs(p.x - x) < threshold && Math.abs(p.y - y) < threshold)
+
+              if (index !== -1) {
+                setDraggedPointIndex(index)
+              } else {
+                const newPoints = [...pts, { x, y }].sort((a, b) => a.x - b.x)
+                const newIndex = newPoints.findIndex(p => p.x === x && p.y === y)
+                setCurvesChannel(curveChannel, newPoints)
+                setDraggedPointIndex(newIndex)
+              }
+            }}
+            onMouseMove={e => {
+              if (draggedPointIndex === null) return
+              const rect = e.currentTarget.getBoundingClientRect()
+              let x = Math.round(((e.clientX - rect.left) / rect.width) * 255)
+              let y = Math.round((1 - (e.clientY - rect.top) / rect.height) * 255)
+
+              x = Math.max(0, Math.min(255, x))
+              y = Math.max(0, Math.min(255, y))
+
+              const pts = curves[curveChannel] || [{ x: 0, y: 0 }, { x: 255, y: 255 }]
+              const newPoints = [...pts]
+
+              if (draggedPointIndex === 0) {
+                x = 0
+              } else if (draggedPointIndex === pts.length - 1) {
+                x = 255
+              } else {
+                const prevX = pts[draggedPointIndex - 1].x
+                const nextX = pts[draggedPointIndex + 1].x
+                x = Math.max(prevX + 1, Math.min(nextX - 1, x))
+              }
+
+              newPoints[draggedPointIndex] = { x, y }
+              setCurvesChannel(curveChannel, newPoints)
+            }}
+            onMouseUp={() => {
+              if (draggedPointIndex !== null) {
+                setDraggedPointIndex(null)
+                pushHistory(`Adjust ${curveChannel.toUpperCase()} Curve`)
+              }
+            }}
+            onMouseLeave={() => {
+              if (draggedPointIndex !== null) {
+                setDraggedPointIndex(null)
+                pushHistory(`Adjust ${curveChannel.toUpperCase()} Curve`)
+              }
+            }}
+            style={{ display: 'block', touchAction: 'none' }}
+          >
+            {/* Grid */}
+            <line x1="64" y1="0" x2="64" y2="256" stroke="var(--b1)" strokeWidth="1" />
+            <line x1="128" y1="0" x2="128" y2="256" stroke="var(--b1)" strokeWidth="1" />
+            <line x1="192" y1="0" x2="192" y2="256" stroke="var(--b1)" strokeWidth="1" />
+            <line x1="0" y1="64" x2="256" y2="64" stroke="var(--b1)" strokeWidth="1" />
+            <line x1="0" y1="128" x2="256" y2="128" stroke="var(--b1)" strokeWidth="1" />
+            <line x1="0" y1="192" x2="256" y2="192" stroke="var(--b1)" strokeWidth="1" />
+            <line x1="0" y1="256" x2="256" y2="0" stroke="rgba(255,255,255,0.06)" strokeWidth="1" strokeDasharray="4" />
+
+            {/* Path */}
+            <path
+              d={(curves[curveChannel] || [{ x: 0, y: 0 }, { x: 255, y: 255 }]).map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${256 - p.y}`).join(' ')}
+              fill="none"
+              stroke={curveChannel === 'rgb' ? '#fff' : curveChannel === 'red' ? 'var(--red)' : curveChannel === 'green' ? 'var(--green)' : 'var(--a2)'}
+              strokeWidth="2"
+            />
+
+            {/* Control Points */}
+            {(curves[curveChannel] || [{ x: 0, y: 0 }, { x: 255, y: 255 }]).map((p, i) => (
+              <circle
+                key={i}
+                cx={p.x}
+                cy={256 - p.y}
+                r={draggedPointIndex === i ? '6' : '4'}
+                fill={curveChannel === 'rgb' ? '#fff' : curveChannel === 'red' ? 'var(--red)' : curveChannel === 'green' ? 'var(--green)' : 'var(--a2)'}
+                stroke="var(--s1)"
+                strokeWidth="1.5"
+                style={{ cursor: 'pointer' }}
+                onDoubleClick={e => {
+                  e.stopPropagation()
+                  if (i === 0 || i === (curves[curveChannel] || []).length - 1) return
+                  const pts = curves[curveChannel] || []
+                  const newPoints = pts.filter((_, idx) => idx !== i)
+                  setCurvesChannel(curveChannel, newPoints)
+                  pushHistory(`Delete Curve Point`)
+                }}
+              />
+            ))}
+          </svg>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--t3)', marginTop: 4 }}>
+          <span>Shadows</span>
+          <span>Highlights</span>
+        </div>
+      </Section>
+
+      {/* Color Grading */}
+      <Section
+        id="sec-grading"
+        title="Color Grading"
+        onReset={() => {
+          setColorGradingChannel('shadows', 'h', 0)
+          setColorGradingChannel('shadows', 's', 0)
+          setColorGradingChannel('shadows', 'l', 0)
+          setColorGradingChannel('midtones', 'h', 0)
+          setColorGradingChannel('midtones', 's', 0)
+          setColorGradingChannel('midtones', 'l', 0)
+          setColorGradingChannel('highlights', 'h', 0)
+          setColorGradingChannel('highlights', 's', 0)
+          setColorGradingChannel('highlights', 'l', 0)
+          if (imageEl) pushHistory('Reset Color Grading')
+        }}
+      >
+        {/* Grading tab picker */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+          {(['shadows', 'midtones', 'highlights'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setGradingTab(tab)}
+              style={{
+                flex: 1,
+                padding: '4px 0',
+                borderRadius: 4,
+                border: '1px solid transparent',
+                fontSize: 11,
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+                background: gradingTab === tab ? 'var(--s3)' : 'transparent',
+                borderColor: gradingTab === tab ? 'var(--b2)' : 'transparent',
+                color: gradingTab === tab ? 'var(--t1)' : 'var(--t2)',
+                transition: 'all var(--fast)',
+              }}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        <ColorGradingWheel
+          label={gradingTab.toUpperCase()}
+          value={colorGrading[gradingTab]}
+          onChange={(prop, val) => setColorGradingChannel(gradingTab, prop, val)}
+          onReset={() => {
+            setColorGradingChannel(gradingTab, 'h', 0)
+            setColorGradingChannel(gradingTab, 's', 0)
+            setColorGradingChannel(gradingTab, 'l', 0)
+            pushHistory(`Reset Color Grading (${gradingTab})`)
+          }}
+        />
       </Section>
 
       {/* Detail */}

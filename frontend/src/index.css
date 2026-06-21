@@ -55,6 +55,11 @@
   --fast: 0.14s ease;
   --med: 0.24s ease;
   --spring: 0.36s cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Typography */
+  --display: 'Space Grotesk', system-ui, sans-serif;
+  --body: 'DM Sans', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 /* ─────────────────────────────────────
@@ -180,3 +185,48 @@ button, input {
   pointer-events: none;
 }
 .pbox-glow:focus-within::before { opacity: 1; }
+
+/* ─────────────────────────────────────
+   CURVES CANVAS
+───────────────────────────────────── */
+.curves-canvas {
+  cursor: crosshair;
+  border-radius: var(--r);
+  background: var(--s0);
+}
+
+/* ─────────────────────────────────────
+   GRADIENT WHEEL (Color Grading)
+───────────────────────────────────── */
+.cg-wheel {
+  border-radius: 50%;
+  cursor: crosshair;
+  position: relative;
+}
+
+/* ─────────────────────────────────────
+   NUMBER INPUT — no spinners
+───────────────────────────────────── */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* ─────────────────────────────────────
+   PROCESSING OVERLAY
+───────────────────────────────────── */
+@keyframes pulse-ring {
+  0%   { transform: scale(0.85); opacity: 0.6; }
+  50%  { transform: scale(1.1);  opacity: 1; }
+  100% { transform: scale(0.85); opacity: 0.6; }
+}
+.animate-pulse-ring { animation: pulse-ring 1.4s ease-in-out infinite; }
+
+/* ─────────────────────────────────────
+   FOCUS RING — accessible
+───────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--a);
+  outline-offset: 2px;
+}
