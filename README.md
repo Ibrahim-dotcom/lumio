@@ -2,35 +2,38 @@
 
 > Photoshop-level capability · Lightroom-level workflow · ChatGPT-level simplicity
 
-Lumio is a production-grade, AI-native image editing platform built for content creators, e-commerce sellers, photographers, and marketing teams. It combines professional-grade editing tools with AI-powered automation in a sleek, modern interface.
+Lumio is a production-grade, AI-native image editing platform built for content creators, e-commerce sellers, photographers, and marketing teams. It combines professional-grade editing tools with AI-powered automation in a sleek, dark-first interface.
 
 ---
 
 ## ✨ Features
 
 ### Implemented
-- **AI Chat Panel (Natural Language Editing)** — Conversational prompt panel powered by a secure server-side Gemini LLM Proxy (`POST /api/ai/plan/`) with regex fallback.
-- **Clone Stamp Tool** — Circular brush clone stamping. Paint destination regions interactively with a source crosshair overlay (`Alt+Click`), processed asynchronously via Celery using OpenCV.
-- **Text Layers Tool** — Draggable, double-clickable, editable overlay text layers with font size, opacity, weight, and color settings. Text layers are burned into the canvas at original resolution on export.
+
+- **AI Chat Panel (Natural Language Editing)** — Conversational prompt panel powered by a secure server-side Gemini LLM Proxy (`POST /api/ai/plan/`) with regex fallback for deterministic edits.
+- **Adjustment Layers & Mask Painting** — Professional local adjustment layers with unlimited masks. Paint white (reveal) or black (erase) directly on per-layer mask canvases with a red Quick Mask overlay. Apply Exposure, Curves, HSL, and Color Grading selectively to any region.
+- **Curves Editor** — Non-destructive RGB and per-channel tone curves via an interactive drag UI, backed by 256-step interpolated LUTs for <1ms per-frame cost.
+- **Color Grading Wheels** — Split-toning across Shadows / Midtones / Highlights with smooth luminance-weighted masking.
+- **HSL Panel** — Per-hue Hue / Saturation / Luminance control across 8 colour channels.
 - **Lightroom-style Adjustments** — Exposure, Brightness, Contrast, Saturation, Hue, Temperature, Tint, Highlights, Shadows, Sharpness, Vignette.
-- **HSL Panel** — Per-hue Hue/Saturation/Luminance control across 8 color channels.
-- **Background Removal** — AI-powered rembg (U2Net) via Celery worker.
-- **Spot Healing Brush** — OpenCV inpainting (TELEA algorithm) with support for transparent 4-channel BGRA PNGs.
+- **Background Removal** — AI-powered via **BRIA RMBG-1.4** (state-of-the-art ONNX segmentation model), processed asynchronously via Celery.
+- **Spot Healing Brush** — OpenCV inpainting (TELEA algorithm) with full support for transparent 4-channel BGRA PNGs.
+- **Clone Stamp Tool** — Circular brush clone stamping with source crosshair overlay (`Alt+Click`), processed asynchronously via Celery + OpenCV.
+- **Text Layers Tool** — Draggable, double-clickable, editable overlay text layers with font size, opacity, weight, and colour settings. Burned into the canvas at original resolution on export.
+- **Shape Layers Tool** — Add and manipulate vector shape layers (rectangles and circles).
 - **Crop & Rotate** — Interactive overlay with corner handles and floating toolbar.
+- **Canvas Panning** — Spacebar-drag panning for efficient navigation.
+- **Eyedropper Tool** — Pick exact pixel colours from the canvas with a floating preview ring to update Text and Shape layers live.
 - **Presets** — Built-in editorial presets + custom user-saved presets (localStorage).
 - **Edit History** — Full undo/redo with branching snapshot model.
-- **Canvas Pipeline** — Real-time pixel-level adjustment preview (no server round-trips).
-- **Before/After Compare** — Hold-to-compare against original image.
-- **Export** — JPEG/PNG/WebP with quality control.
-- **Shape Layers Tool** — Add and manipulate vector shape layers (rectangles and circles).
-- **Curves Editor** — Non-destructive RGB and per-channel curves via interactive UI, backed by high-performance 256-step interpolated lookup tables (LUTs).
-- **Color Grading Wheels** — Split-toning across shadows, midtones, and highlights with smooth luminance-weighted masking.
-- **Canvas Panning** — Spacebar-drag panning for efficient navigation across the canvas.
-- **Eyedropper Tool** — Pick exact pixel colors from the canvas with a floating preview ring to dynamically update Text and Shape layers.
-- **Adjustment Layers & Mask Painting** — Professional local adjustment layers. Add unlimited mask layers, paint white (mask brush) or erase (black eraser) directly on the local canvas masks with a red Quick Mask overlay, and apply local Exposure, Curves, HSL, and Color Grading adjustments selectively.
+- **Canvas Pipeline** — Real-time pixel-level adjustment preview in <16 ms (no server round-trips).
+- **Before/After Compare** — Hold to compare against original image.
+- **Export** — JPEG / PNG / WebP with quality control.
+- **Automation Workflows** — Create named multi-step workflows (e.g. Remove BG → Sharpen → Export) and execute them as a single Celery task (`run_workflow_task`).
 
 ### Coming Next
-- Batch Processing & Workflow Engine
+
+- **Batch Processing** — Apply any workflow to 10–10 000 images in one click with a progress queue UI.
 - Sky Replacement
 - Content-Aware Fill / Object Removal
 - Authentication & User Accounts
@@ -41,21 +44,22 @@ Lumio is a production-grade, AI-native image editing platform built for content 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────┐     REST API      ┌──────────────────────┐
-│   React Frontend │ ◄────────────── ► │   Django Backend      │
-│   (Vite + TS)   │                   │   (DRF + Celery)      │
-└─────────────────┘                   └──────────┬───────────┘
+┌─────────────────┐     REST API      ┌──────────────────────────┐
+│  React Frontend  │ ◄────────────── ► │   Django Backend          │
+│  (Vite + TS)    │                   │   (DRF + Celery)          │
+└─────────────────┘                   └──────────┬───────────────┘
                                                   │
-                                       ┌──────────▼───────────┐
-                                       │   Redis (Broker)      │
-                                       └──────────┬───────────┘
+                                       ┌──────────▼───────────────┐
+                                       │   Redis (Broker/Cache)    │
+                                       └──────────┬───────────────┘
                                                   │
-                                       ┌──────────▼───────────┐
-                                       │   Celery Worker       │
-                                       │ • rembg (bg removal)  │
-                                       │ • OpenCV (inpainting) │
-                                       │ • PIL / libvips       │
-                                       └──────────────────────┘
+                                       ┌──────────▼───────────────┐
+                                       │   Celery Worker           │
+                                       │ • BRIA RMBG-1.4 (rembg)  │
+                                       │ • OpenCV (inpainting)     │
+                                       │ • PIL / libvips           │
+                                       │ • Workflow runner         │
+                                       └──────────────────────────┘
 ```
 
 ---
@@ -65,9 +69,10 @@ Lumio is a production-grade, AI-native image editing platform built for content 
 | Layer | Technology |
 |-------|-----------|
 | Frontend | React 18, TypeScript, Vite, Zustand, Framer Motion |
-| Backend | Python 3.8, Django 4.x, Django REST Framework |
+| Backend | Python 3.10+, Django 4.x, Django REST Framework |
 | Task Queue | Celery 5, Redis |
-| Image Processing | OpenCV, rembg, Pillow |
+| Image Processing | OpenCV, rembg + BRIA RMBG-1.4, Pillow |
+| AI / LLM | Google Gemini (server-side proxy) |
 | Database | PostgreSQL |
 | Storage | Local (dev) → S3-compatible (prod) |
 
@@ -76,9 +81,10 @@ Lumio is a production-grade, AI-native image editing platform built for content 
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Python 3.8+
+
+- Python 3.10+
 - Node.js 18+
-- Redis (running on `localhost:6379`)
+- Redis running on `localhost:6379`
 - PostgreSQL database named `lumio_db`
 
 ### Backend Setup
@@ -94,14 +100,17 @@ venv\Scripts\activate        # Windows
 # Install dependencies
 pip install -r requirements.txt
 
-# Create .env file with your GEMINI_API_KEY
+# Create .env file
 # GEMINI_API_KEY=your_key_here
 
 # Run migrations
 python manage.py migrate
 
-# Start Django dev server
-python manage.py runserver
+# Pre-download the BRIA RMBG-1.4 model (one-time, ~170 MB)
+python download_model.py
+
+# Start Django dev server on port 8001
+python manage.py runserver 8001
 
 # In a separate terminal — start Celery worker
 celery -A lumio_backend worker --loglevel=info -P solo
@@ -121,6 +130,8 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173) in your browser.
 
+The frontend communicates with the backend at `http://localhost:8001` (configured in `frontend/.env.local`).
+
 ---
 
 ## 📁 Project Structure
@@ -130,32 +141,55 @@ PHOTOTOOL/
 ├── backend/
 │   ├── api/
 │   │   ├── models.py          # Project, Image, EditHistory, Workflow
-│   │   ├── views.py           # ImageViewSet (process, remove_background, heal, clone_stamp), AIPlannerView
-│   │   ├── tasks.py           # Celery tasks (adjustments, bg-removal, healing, clone_stamp)
+│   │   ├── views.py           # ImageViewSet, AIPlannerView, WorkflowViewSet
+│   │   ├── tasks.py           # Celery tasks: adjustments, bg-removal, healing,
+│   │   │                      #   clone_stamp, workflow runner
 │   │   ├── serializers.py
 │   │   └── urls.py
 │   ├── lumio_backend/
 │   │   ├── settings.py
 │   │   ├── urls.py
 │   │   └── celery.py
+│   ├── download_model.py      # Pre-warm BRIA RMBG-1.4 via rembg
 │   └── manage.py
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Canvas/        # Main editing canvas + crop/heal/stamp overlays
-│   │   │   ├── LeftPanel/     # History, Layers, Assets
-│   │   │   ├── RightPanel/    # Adjustments, HSL, Presets, Export, Text Layers Panel
-│   │   │   └── TopBar/        # Toolbar, tool selection
+│   │   │   ├── Canvas/        # Main editing canvas + all overlay tools
+│   │   │   ├── LeftPanel/     # History, Adjustment Layers, Assets
+│   │   │   ├── RightPanel/    # Adjustments, Curves, HSL, Presets, Export,
+│   │   │   │                  #   Text Layers, Color Grading, Layer Context
+│   │   │   └── TopBar/        # Toolbar, tool selection, AI chat trigger
 │   │   ├── store/
-│   │   │   └── editorStore.ts # Zustand global state
+│   │   │   └── editorStore.ts # Zustand global state (incl. adjustmentLayers)
 │   │   ├── services/
 │   │   │   └── api.ts         # Backend API client
 │   │   └── utils/
-│   │       └── pixelPipeline.ts # Real-time canvas processing
+│   │       └── pixelPipeline.ts # Real-time multi-layer canvas processing
+│   ├── .env.local             # VITE_API_BASE_URL=http://localhost:8001
 │   └── package.json
 ├── plan.md                    # Full product roadmap
 └── README.md
 ```
+
+---
+
+## 🗺️ Roadmap
+
+| Module | Status |
+|--------|--------|
+| 1 — Image Workspace (canvas, zoom, pan, compare) | ✅ Done |
+| 2 — AI Chat Panel (Gemini LLM + regex fallback) | ✅ Done |
+| 3 — Edit History (undo/redo + branching) | ✅ Done |
+| 4 — Layer System (adjustment, text, shape layers) | ✅ Done |
+| 5 — Lightroom Features (sliders, curves, HSL, color grading) | ✅ Done |
+| 6 — Photoshop Features (crop, clone stamp, healing, bg removal) | ✅ Done |
+| 7 — AI Planner (NL → edit params via Gemini) | ✅ Done |
+| 8 — Computer Vision (BRIA RMBG-1.4 segmentation) | ✅ Done |
+| 9 — Generative AI (future) | 🔜 Planned |
+| 10 — Automation Workflows (named multi-step Celery tasks) | ✅ Done |
+| 11 — Batch Processing (bulk apply workflows) | 🚧 In Progress |
+| 12 — Presets (built-in + custom) | ✅ Done |
 
 ---
 

@@ -148,7 +148,7 @@ def process_image_adjustments(self, image_id: str, adjustments: dict):
 @shared_task(bind=True, max_retries=2, default_retry_delay=10)
 def run_background_removal(self, image_id: str):
     """
-    Run rembg (U2Net) on the original image and write a PNG with alpha channel
+    Run rembg (BRIA RMBG-1.4) on the original image and write a PNG with alpha channel
     to Image.processed_file.
     """
     from api.models import Image as ImageModel
@@ -159,14 +159,15 @@ def run_background_removal(self, image_id: str):
         return f'Image {image_id} not found'
 
     try:
-        from rembg import remove as rembg_remove
+        from rembg import remove as rembg_remove, new_session
 
         orig_path = instance.original_file.path
         with open(orig_path, 'rb') as f:
             input_bytes = f.read()
 
-        logger.info('run_background_removal: running rembg on %s', orig_path)
-        output_bytes = rembg_remove(input_bytes)
+        logger.info('run_background_removal: running rembg (bria_rmbg) on %s', orig_path)
+        session = new_session('bria_rmbg')
+        output_bytes = rembg_remove(input_bytes, session=session)
 
         base = os.path.splitext(os.path.basename(orig_path))[0]
         fname = f'nobg_{base}.png'
@@ -385,9 +386,10 @@ def run_workflow_task(self, image_id: str, workflow_id: str):
                     img = _clamp(img * np.dstack([mask] * 3))
 
             elif stype == 'remove_background':
-                from rembg import remove as rembg_remove
+                from rembg import remove as rembg_remove, new_session
                 _, input_bytes = cv2.imencode('.png', img)
-                output_bytes = rembg_remove(input_bytes.tobytes())
+                session = new_session('bria_rmbg')
+                output_bytes = rembg_remove(input_bytes.tobytes(), session=session)
                 img = cv2.imdecode(np.frombuffer(output_bytes, np.uint8), cv2.IMREAD_UNCHANGED)
 
         base = os.path.splitext(os.path.basename(orig_path))[0]
