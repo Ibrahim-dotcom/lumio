@@ -2,7 +2,7 @@ import React, {
   useRef, useEffect, useCallback, useState
 } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useEditorStore, type TextLayer } from '../../store/editorStore'
+import { useEditorStore, type TextLayer, type ShapeLayer } from '../../store/editorStore'
 import { pixelPipeline, drawHistogram } from '../../engine/pixelPipeline'
 import { ZoomIn, ZoomOut, Maximize2, Columns2, ImageIcon, RotateCcw, RotateCw, Check, X } from 'lucide-react'
 import * as api from '../../services/api'
@@ -105,6 +105,21 @@ export function Canvas() {
   const textLayers = useEditorStore(s => s.textLayers)
   const addTextLayer = useEditorStore(s => s.addTextLayer)
   const activeTextLayerId = useEditorStore(s => s.activeTextLayerId)
+
+  // Shape Layers selectors
+  const shapeLayers = useEditorStore(s => s.shapeLayers)
+  const addShapeLayer = useEditorStore(s => s.addShapeLayer)
+  const activeShapeLayerId = useEditorStore(s => s.activeShapeLayerId)
+
+  const [drawingShape, setDrawingShape] = useState<{
+    type: 'rect' | 'circle'
+    startX: number
+    startY: number
+    x: number
+    y: number
+    w: number
+    h: number
+  } | null>(null)
 
   const [brushSize, setBrushSize] = useState(20)
   const [isBrushing, setIsBrushing] = useState(false)
@@ -483,6 +498,81 @@ export function Canvas() {
     showToast('Text layer added')
   }, [activeTool, imageEl, addTextLayer, pushHistory, showToast])
 
+  // ─── Shape Layer placement / drag drawing ───────────────────────────────────
+  const handleShapeMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if ((activeTool !== 'rect' && activeTool !== 'circle') || !imageEl || !canvasRef.current) return
+    e.preventDefault()
+    const canvas = canvasRef.current
+    const rect = canvas.getBoundingClientRect()
+
+    const clientX = e.clientX - rect.left
+    const clientY = e.clientY - rect.top
+    const startX = clientX / rect.width
+    const startY = clientY / rect.height
+
+    setDrawingShape({
+      type: activeTool,
+      startX,
+      startY,
+      x: startX,
+      y: startY,
+      w: 0,
+      h: 0,
+    })
+
+    function handleMouseMove(ev: MouseEvent) {
+      const cX = ev.clientX - rect.left
+      const cY = ev.clientY - rect.top
+      const currX = Math.max(0, Math.min(1, cX / rect.width))
+      const currY = Math.max(0, Math.min(1, cY / rect.height))
+
+      const x = Math.min(startX, currX)
+      const y = Math.min(startY, currY)
+      const w = Math.abs(startX - currX)
+      const h = Math.abs(startY - currY)
+
+      setDrawingShape({
+        type: activeTool as 'rect' | 'circle',
+        startX,
+        startY,
+        x,
+        y,
+        w,
+        h
+      })
+    }
+
+    function handleMouseUp() {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+      
+      setDrawingShape(s => {
+        if (s && s.w > 0.005 && s.h > 0.005) {
+          const newShape: ShapeLayer = {
+            id: 'shape-' + Date.now(),
+            type: s.type,
+            x: s.x,
+            y: s.y,
+            w: s.w,
+            h: s.h,
+            fill: 'rgba(124, 111, 255, 0.4)',
+            stroke: '#7c6fff',
+            strokeWidth: 2,
+            opacity: 100,
+          }
+          addShapeLayer(newShape)
+          pushHistory(`Add ${s.type === 'rect' ? 'Rectangle' : 'Circle'}`)
+          showToast(`${s.type === 'rect' ? 'Rectangle' : 'Circle'} added`)
+        }
+        return null
+      })
+      setActiveTool('select')
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }, [activeTool, imageEl, addShapeLayer, pushHistory, showToast, setActiveTool])
+
   // ─── Render engine ──────────────────────────────────────────────────────────
   const renderCanvas = useCallback(() => {
     if (!imageEl || !canvasRef.current || !stageRef.current) return
@@ -688,6 +778,7 @@ export function Canvas() {
         {/* Canvas Container */}
         <div 
           onClick={handleCanvasClick}
+          onMouseDown={handleShapeMouseDown}
           style={{ position: 'relative', zIndex: 1, display: imageEl ? 'block' : 'none' }}
         >
           <canvas
@@ -743,6 +834,34 @@ export function Canvas() {
               />
             )
           })}
+          {/* Shape Layer overlays */}
+          {shapeLayers.map((layer) => {
+            const isSelected = activeShapeLayerId === layer.id
+            return (
+              <ShapeLayerComponent
+                key={layer.id}
+                layer={layer}
+                isSelected={isSelected}
+                canvasRef={canvasRef}
+              />
+            )
+          })}
+          {/* Active drawing shape preview */}
+          {drawingShape && (
+            <div
+              style={{
+                position: 'absolute',
+                left: `${drawingShape.x * 100}%`,
+                top: `${drawingShape.y * 100}%`,
+                width: `${drawingShape.w * 100}%`,
+                height: `${drawingShape.h * 100}%`,
+                border: '1.5px dashed var(--a)',
+                background: 'rgba(124, 111, 255, 0.25)',
+                borderRadius: drawingShape.type === 'circle' ? '50%' : '0',
+                pointerEvents: 'none',
+              }}
+            />
+          )}
           {comparing && (
             <div style={{
               position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
@@ -1199,6 +1318,93 @@ function TextLayerComponent({
       }}
     >
       {layer.text}
+    </div>
+  )
+}
+
+function ShapeLayerComponent({
+  layer,
+  isSelected,
+  canvasRef,
+}: {
+  layer: ShapeLayer
+  isSelected: boolean
+  canvasRef: React.RefObject<HTMLCanvasElement | null>
+}) {
+  const updateShapeLayer = useEditorStore(s => s.updateShapeLayer)
+  const setActiveShapeLayer = useEditorStore(s => s.setActiveShapeLayer)
+  const pushHistory = useEditorStore(s => s.pushHistory)
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setActiveShapeLayer(layer.id)
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const startX = e.clientX
+    const startY = e.clientY
+    const startXPct = layer.x
+    const startYPct = layer.y
+
+    function handleMouseMove(ev: MouseEvent) {
+      const dx = (ev.clientX - startX) / rect.width
+      const dy = (ev.clientY - startY) / rect.height
+      updateShapeLayer(layer.id, {
+        x: Math.max(0, Math.min(1 - layer.w, startXPct + dx)),
+        y: Math.max(0, Math.min(1 - layer.h, startYPct + dy)),
+      })
+    }
+
+    function handleMouseUp() {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+      pushHistory('Move Shape')
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }
+
+  return (
+    <div
+      onMouseDown={handleMouseDown}
+      style={{
+        position: 'absolute',
+        left: `${layer.x * 100}%`,
+        top: `${layer.y * 100}%`,
+        width: `${layer.w * 100}%`,
+        height: `${layer.h * 100}%`,
+        outline: isSelected ? '1px dashed var(--a)' : 'none',
+        pointerEvents: 'auto',
+        cursor: 'move',
+        zIndex: isSelected ? 20 : 10,
+      }}
+    >
+      <svg width="100%" height="100%" style={{ display: 'block', overflow: 'visible' }}>
+        {layer.type === 'rect' ? (
+          <rect
+            width="100%"
+            height="100%"
+            fill={layer.fill}
+            stroke={layer.stroke}
+            strokeWidth={layer.strokeWidth}
+            opacity={layer.opacity / 100}
+          />
+        ) : (
+          <ellipse
+            cx="50%"
+            cy="50%"
+            rx="50%"
+            ry="50%"
+            fill={layer.fill}
+            stroke={layer.stroke}
+            strokeWidth={layer.strokeWidth}
+            opacity={layer.opacity / 100}
+          />
+        )}
+      </svg>
     </div>
   )
 }

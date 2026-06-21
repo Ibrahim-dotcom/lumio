@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
+import type { ApiWorkflow } from '../services/api'
 
 // ─── Adjustment Keys & Ranges ───────────────────────────────────────────────
 export interface Adjustments {
@@ -67,7 +68,21 @@ export interface Layer {
 }
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
-export type Tool = 'select' | 'crop' | 'heal' | 'pick' | 'stamp' | 'text'
+export type Tool = 'select' | 'crop' | 'heal' | 'pick' | 'stamp' | 'text' | 'rect' | 'circle'
+
+// ─── Shape Layer ─────────────────────────────────────────────────────────────
+export interface ShapeLayer {
+  id: string
+  type: 'rect' | 'circle'
+  x: number        // 0-1 fraction of canvas width
+  y: number        // 0-1 fraction of canvas height
+  w: number        // 0-1 fraction of canvas width
+  h: number        // 0-1 fraction of canvas height
+  fill: string
+  stroke: string
+  strokeWidth: number
+  opacity: number  // 0-100
+}
 
 // ─── Text Layer ─────────────────────────────────────────────────────────────
 export interface TextLayer {
@@ -154,6 +169,18 @@ export interface EditorStore {
   removeTextLayer: (id: string) => void
   activeTextLayerId: string | null
   setActiveTextLayer: (id: string | null) => void
+
+  // Shape Layers
+  shapeLayers: ShapeLayer[]
+  addShapeLayer: (layer: ShapeLayer) => void
+  updateShapeLayer: (id: string, patch: Partial<ShapeLayer>) => void
+  removeShapeLayer: (id: string) => void
+  activeShapeLayerId: string | null
+  setActiveShapeLayer: (id: string | null) => void
+
+  // Workflows
+  workflows: ApiWorkflow[]
+  setWorkflows: (workflows: ApiWorkflow[]) => void
 
   // UI State
   editCount: number
@@ -389,5 +416,22 @@ export const useEditorStore = create<EditorStore>()(
       activeTextLayerId: s.activeTextLayerId === id ? null : s.activeTextLayerId,
     })),
     setActiveTextLayer: (id) => set({ activeTextLayerId: id }),
+
+    // Shape Layers
+    shapeLayers: [],
+    activeShapeLayerId: null,
+    addShapeLayer: (layer) => set(s => ({ shapeLayers: [...s.shapeLayers, layer], activeShapeLayerId: layer.id })),
+    updateShapeLayer: (id, patch) => set(s => ({
+      shapeLayers: s.shapeLayers.map(l => l.id === id ? { ...l, ...patch } : l)
+    })),
+    removeShapeLayer: (id) => set(s => ({
+      shapeLayers: s.shapeLayers.filter(l => l.id !== id),
+      activeShapeLayerId: s.activeShapeLayerId === id ? null : s.activeShapeLayerId,
+    })),
+    setActiveShapeLayer: (id) => set({ activeShapeLayerId: id }),
+
+    // Workflows
+    workflows: [],
+    setWorkflows: (workflows) => set({ workflows }),
   }))
 )

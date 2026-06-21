@@ -166,3 +166,31 @@ export async function cloneStamp(
     body: JSON.stringify({ src_x: srcX, src_y: srcY, strokes }),
   })
 }
+
+export interface ApiWorkflow {
+  id: string
+  name: string
+  steps: Array<{ type: string; [key: string]: any }>
+  created_at: string
+}
+
+// ─── Workflows ───────────────────────────────────────────────────────────────
+export async function createWorkflow(name: string, steps: Array<any>): Promise<ApiWorkflow> {
+  return api<ApiWorkflow>('/workflows/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, steps }),
+  })
+}
+
+export async function listWorkflows(): Promise<ApiWorkflow[]> {
+  return api<ApiWorkflow[]>('/workflows/')
+}
+
+export async function runWorkflow(workflowId: string, imageId: string): Promise<ApiTask> {
+  return api<ApiTask>(`/workflows/${workflowId}/run/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image_id: imageId }),
+  })
+}

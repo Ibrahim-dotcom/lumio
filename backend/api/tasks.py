@@ -289,3 +289,114 @@ def run_clone_stamp(self, image_id: str, src_x: int, src_y: int, strokes: list):
     except Exception as exc:
         logger.exception('run_clone_stamp failed for %s', image_id)
         raise self.retry(exc=exc)
+
+
+# ─── Task 5: Workflow Runner ──────────────────────────────────────────────────
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=10)
+def run_workflow_task(self, image_id: str, workflow_id: str):
+    """
+    Sequentially execute all steps in the Workflow on the original image,
+    saving the final outcome to processed_file.
+    """
+    from api.models import Image as ImageModel, Workflow as WorkflowModel
+    try:
+        image_instance = ImageModel.objects.get(id=image_id)
+        workflow_instance = WorkflowModel.objects.get(id=workflow_id)
+    except Exception as exc:
+        logger.error('run_workflow_task: Image %s or Workflow %s not found', image_id, workflow_id)
+        return 'Not found'
+
+    try:
+        orig_path = image_instance.original_file.path
+        img = _load_cv2(orig_path)
+        
+        for step in workflow_instance.steps:
+            stype = step.get('type')
+            
+            if stype == 'adjustment':
+                adjustments = step.get('adjustments', {})
+                img_float = img.astype(float)
+                
+                exposure = adjustments.get('exposure', 0)
+                if exposure:
+                    img_float = img_float * (2 ** ((exposure / 100) * 2.2))
+                brightness = adjustments.get('brightness', 0)
+                if brightness:
+                    img_float = img_float + (brightness / 100) * 85
+                contrast = adjustments.get('contrast', 0)
+                if contrast:
+                    factor = 1.0 + (contrast / 100) * 1.85
+                    img_float = (img_float - 128.0) * factor + 128.0
+                img = _clamp(img_float)
+                
+                saturation = adjustments.get('saturation', 0)
+                if saturation:
+                    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(float)
+                    hsv[:, :, 1] = np.clip(hsv[:, :, 1] * (1.0 + saturation / 100), 0, 255)
+                    img = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+                
+                hue = adjustments.get('hue', 0)
+                if hue:
+                    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(float)
+                    hsv[:, :, 0] = (hsv[:, :, 0] + hue / 2.0) % 180
+                    img = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+                
+                temperature = adjustments.get('temperature', 0)
+                if temperature:
+                    offset = (temperature / 100) * 40
+                    img = img.astype(float)
+                    img[:, :, 0] = np.clip(img[:, :, 0] - offset, 0, 255)
+                    img[:, :, 2] = np.clip(img[:, :, 2] + offset, 0, 255)
+                    img = img.astype(np.uint8)
+                
+                tint = adjustments.get('tint', 0)
+                if tint:
+                    img = img.astype(float)
+                    img[:, :, 1] = np.clip(img[:, :, 1] + (tint / 100) * 30, 0, 255)
+                    img = img.astype(np.uint8)
+                
+                highlights = adjustments.get('highlights', 0)
+                shadows = adjustments.get('shadows', 0)
+                if highlights or shadows:
+                    lut = np.arange(256, dtype=float)
+                    if highlights:
+                        hl_mask = lut / 255.0
+                        lut = lut + hl_mask * (highlights / 100) * 60
+                    if shadows:
+                        sh_mask = 1.0 - lut / 255.0
+                        lut = lut + sh_mask * (shadows / 100) * 60
+                    lut = np.clip(lut, 0, 255).astype(np.uint8)
+                    img = cv2.LUT(img, lut)
+                
+                sharpness = adjustments.get('sharpness', 0)
+                if sharpness > 0:
+                    blurred = cv2.GaussianBlur(img, (0, 0), 3)
+                    img = cv2.addWeighted(img, 1 + sharpness / 100, blurred, -(sharpness / 100), 0)
+                
+                vignette = adjustments.get('vignette', 0)
+                if vignette < 0:
+                    h, w = img.shape[:2]
+                    kx = cv2.getGaussianKernel(w, w / 2)
+                    ky = cv2.getGaussianKernel(h, h / 2)
+                    kernel = ky * kx.T
+                    mask = kernel / kernel.max()
+                    mask = 1.0 - (1.0 - mask) * abs(vignette / 100.0)
+                    img = _clamp(img * np.dstack([mask] * 3))
+
+            elif stype == 'remove_background':
+                from rembg import remove as rembg_remove
+                _, input_bytes = cv2.imencode('.png', img)
+                output_bytes = rembg_remove(input_bytes.tobytes())
+                img = cv2.imdecode(np.frombuffer(output_bytes, np.uint8), cv2.IMREAD_UNCHANGED)
+
+        base = os.path.splitext(os.path.basename(orig_path))[0]
+        fname = f'wf_{workflow_instance.name.replace(" ", "_")}_{base}.png'
+        _, buf = cv2.imencode('.png', img)
+        image_instance.processed_file.save(fname, ContentFile(buf.tobytes()), save=True)
+        logger.info('run_workflow_task completed and saved for image %s', image_id)
+        return image_instance.processed_file.url
+
+    except Exception as exc:
+        logger.exception('run_workflow_task failed')
+        raise self.retry(exc=exc)

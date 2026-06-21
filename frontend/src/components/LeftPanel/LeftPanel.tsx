@@ -1,10 +1,11 @@
 import React, { useRef, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useEditorStore } from '../../store/editorStore'
-import { Eye, EyeOff, Lock, Unlock, Clock, Info, Layers, ImageIcon } from 'lucide-react'
+import { Eye, EyeOff, Lock, Unlock, Clock, Info, Layers, ImageIcon, Zap } from 'lucide-react'
 import { useUpload } from '../../hooks/useUpload'
+import { WorkflowsTab } from './WorkflowsTab'
 
-type LeftTab = 'hist' | 'layers' | 'info'
+type LeftTab = 'hist' | 'layers' | 'wf' | 'info'
 
 export function LeftPanel() {
   const [activeTab, setActiveTab] = useState<LeftTab>('hist')
@@ -71,6 +72,7 @@ export function LeftPanel() {
   const TABS = [
     { id: 'hist' as LeftTab, label: 'History', icon: <Clock size={11} /> },
     { id: 'layers' as LeftTab, label: 'Layers', icon: <Layers size={11} /> },
+    { id: 'wf' as LeftTab, label: 'Workflows', icon: <Zap size={11} /> },
     { id: 'info' as LeftTab, label: 'Info', icon: <Info size={11} /> },
   ]
 
@@ -294,6 +296,18 @@ export function LeftPanel() {
                   </div>
                 ))
               )}
+            </motion.div>
+          )}
+
+          {activeTab === 'wf' && (
+            <motion.div
+              key="wf"
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 8 }}
+              transition={{ duration: 0.15 }}
+            >
+              <WorkflowsTab />
             </motion.div>
           )}
 

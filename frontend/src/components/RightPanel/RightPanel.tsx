@@ -315,6 +315,13 @@ export function RightPanel() {
   const removeTextLayer = useEditorStore(s => s.removeTextLayer)
   const setActiveTextLayer = useEditorStore(s => s.setActiveTextLayer)
 
+  // Shape Layers selectors
+  const shapeLayers = useEditorStore(s => s.shapeLayers)
+  const activeShapeLayerId = useEditorStore(s => s.activeShapeLayerId)
+  const updateShapeLayer = useEditorStore(s => s.updateShapeLayer)
+  const removeShapeLayer = useEditorStore(s => s.removeShapeLayer)
+  const setActiveShapeLayer = useEditorStore(s => s.setActiveShapeLayer)
+
   // Expose the histogram canvas ref so Canvas.tsx can use it
   useEffect(() => {
     // Canvas component draws the histogram onto a hidden canvas,
@@ -352,6 +359,37 @@ export function RightPanel() {
       const x = layer.x * cv.width
       const y = layer.y * cv.height
       ctx.fillText(layer.text, x, y)
+      ctx.restore()
+    })
+
+    // Draw shape layers to the exported canvas
+    shapeLayers.forEach(layer => {
+      ctx.save()
+      ctx.globalAlpha = layer.opacity / 100
+      ctx.fillStyle = layer.fill
+      ctx.strokeStyle = layer.stroke
+      const canvasDisplayWidth = cv.getBoundingClientRect().width || cv.width
+      const scale = cv.width / canvasDisplayWidth
+      ctx.lineWidth = layer.strokeWidth * scale
+      
+      const x = layer.x * cv.width
+      const y = layer.y * cv.height
+      const w = layer.w * cv.width
+      const h = layer.h * cv.height
+      
+      if (layer.type === 'rect') {
+        ctx.fillRect(x, y, w, h)
+        if (layer.strokeWidth > 0) {
+          ctx.strokeRect(x, y, w, h)
+        }
+      } else {
+        ctx.beginPath()
+        ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
+        ctx.fill()
+        if (layer.strokeWidth > 0) {
+          ctx.stroke()
+        }
+      }
       ctx.restore()
     })
 
@@ -634,6 +672,116 @@ export function RightPanel() {
                         style={{ width: 30, height: 20, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
                       />
                     </div>
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+        </Section>
+      )}
+
+      {/* Shape Layers Panel */}
+      {(shapeLayers.length > 0 || useEditorStore.getState().activeTool === 'rect' || useEditorStore.getState().activeTool === 'circle') && (
+        <Section id="sec-shapes" title="Shape Layers">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {shapeLayers.map((layer) => {
+              const isSelected = activeShapeLayerId === layer.id
+              return (
+                <div
+                  key={layer.id}
+                  onClick={() => setActiveShapeLayer(layer.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '6px 10px',
+                    borderRadius: 'var(--r)',
+                    background: isSelected ? 'var(--s3)' : 'var(--s2)',
+                    border: `1px solid ${isSelected ? 'var(--a)' : 'var(--b1)'}`,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span style={{ fontSize: 12, color: 'var(--t1)', textTransform: 'capitalize' }}>
+                    {layer.type === 'rect' ? 'Rectangle' : 'Circle'} Layer
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      removeShapeLayer(layer.id)
+                      pushHistory('Delete Shape Layer')
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--t3)',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.color = 'var(--red)'}
+                    onMouseLeave={e => e.currentTarget.style.color = 'var(--t3)'}
+                  >
+                    Delete
+                  </button>
+                </div>
+              )
+            })}
+
+            {/* Selected Shape Layer Details */}
+            {activeShapeLayerId && (() => {
+              const layer = shapeLayers.find(l => l.id === activeShapeLayerId)
+              if (!layer) return null
+              return (
+                <div style={{ borderTop: '1px solid var(--b2)', paddingTop: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--t2)' }}>Shape Properties</div>
+                  
+                  {/* Fill Color */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--t2)' }}>Fill Color</span>
+                    <input
+                      type="color"
+                      value={layer.fill.startsWith('rgba') ? '#7c6fff' : layer.fill}
+                      onChange={(e) => updateShapeLayer(layer.id, { fill: e.target.value })}
+                      style={{ width: 30, height: 20, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                    />
+                  </div>
+
+                  {/* Stroke Color */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--t2)' }}>Stroke Color</span>
+                    <input
+                      type="color"
+                      value={layer.stroke}
+                      onChange={(e) => updateShapeLayer(layer.id, { stroke: e.target.value })}
+                      style={{ width: 30, height: 20, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                    />
+                  </div>
+
+                  {/* Border Width */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--t2)', width: 80, flexShrink: 0 }}>Border</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={20}
+                      value={layer.strokeWidth}
+                      onChange={(e) => updateShapeLayer(layer.id, { strokeWidth: parseInt(e.target.value) })}
+                      style={{ width: '100%' }}
+                    />
+                    <span style={{ fontSize: 11, color: 'var(--t2)', width: 28, textAlign: 'right' }}>{layer.strokeWidth}px</span>
+                  </div>
+
+                  {/* Opacity */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--t2)', width: 80, flexShrink: 0 }}>Opacity</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={layer.opacity}
+                      onChange={(e) => updateShapeLayer(layer.id, { opacity: parseInt(e.target.value) })}
+                      style={{ width: '100%' }}
+                    />
+                    <span style={{ fontSize: 11, color: 'var(--t2)', width: 28, textAlign: 'right' }}>{layer.opacity}%</span>
                   </div>
                 </div>
               )

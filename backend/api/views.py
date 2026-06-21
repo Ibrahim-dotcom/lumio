@@ -9,7 +9,7 @@ from api.serializers import (
     ProjectSerializer, ImageSerializer,
     EditHistorySerializer, WorkflowSerializer,
 )
-from api.tasks import process_image_adjustments, run_background_removal, run_spot_healing, run_clone_stamp
+from api.tasks import process_image_adjustments, run_background_removal, run_spot_healing, run_clone_stamp, run_workflow_task
 from PIL import Image as PILImage
 import json
 import requests as http_requests
@@ -277,3 +277,27 @@ class WorkflowViewSet(viewsets.ModelViewSet):
     """CRUD for reusable saved Workflows."""
     queryset = Workflow.objects.all().order_by('-created_at')
     serializer_class = WorkflowSerializer
+
+    @action(detail=True, methods=['post'])
+    def run(self, request, pk=None):
+        """
+        Run this workflow on a target image.
+        Expects request.data to have:
+            - image_id: str
+        """
+        workflow = self.get_object()
+        image_id = request.data.get('image_id')
+
+        if not image_id:
+            return Response(
+                {'detail': 'image_id is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        task = run_workflow_task.delay(str(image_id), str(workflow.id))
+
+        return Response({
+            'status': 'queued',
+            'task_id': task.id,
+            'message': 'Workflow runner started.',
+        }, status=status.HTTP_202_ACCEPTED)

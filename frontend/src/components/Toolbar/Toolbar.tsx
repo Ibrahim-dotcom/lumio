@@ -4,7 +4,7 @@ import { useEditorStore } from '../../store/editorStore'
 import type { Tool } from '../../store/editorStore'
 import {
   MousePointer2, Crop, Sparkles, Pipette,
-  Undo2, Redo2, RotateCcw, Download, Stamp, Type
+  Undo2, Redo2, RotateCcw, Download, Stamp, Type, Square, Circle
 } from 'lucide-react'
 
 const TOOLS: { id: Tool; label: string; icon: React.ReactNode; key: string }[] = [
@@ -13,6 +13,8 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode; key: string }[] =
   { id: 'heal',   label: 'Heal',   icon: <Sparkles size={13} strokeWidth={1.8} />,      key: 'H' },
   { id: 'stamp',  label: 'Stamp',  icon: <Stamp size={13} strokeWidth={1.8} />,         key: 'S' },
   { id: 'text',   label: 'Text',   icon: <Type size={13} strokeWidth={1.8} />,           key: 'T' },
+  { id: 'rect',   label: 'Rect',   icon: <Square size={13} strokeWidth={1.8} />,         key: 'R' },
+  { id: 'circle', label: 'Circle', icon: <Circle size={13} strokeWidth={1.8} />,         key: 'O' },
   { id: 'pick',   label: 'Pick',   icon: <Pipette size={13} strokeWidth={1.8} />,       key: 'I' },
 ]
 
