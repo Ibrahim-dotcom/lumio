@@ -267,7 +267,8 @@ def run_lama_heal_task(self, image_id: str, mask_path: str):
             mask = mask.resize(img.size, PILImage.NEAREST)
 
         logger.info('run_lama_heal_task: initializing SimpleLama...')
-        simple_lama = SimpleLama()
+        import torch
+        simple_lama = SimpleLama(device=torch.device('cpu'))
         
         logger.info('run_lama_heal_task: processing inpainting...')
         result = simple_lama(img, mask)
