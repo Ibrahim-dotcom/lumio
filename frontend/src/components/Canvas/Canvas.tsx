@@ -35,41 +35,13 @@ export function Canvas() {
     const handleEraser = (e: Event) => {
       setIsMaskEraser((e as CustomEvent).detail)
     }
-    const handleSetMask = (e: Event) => {
-      const { layerId, maskBase64, invert } = (e as CustomEvent).detail
-      const canvas = maskCanvasesRef.current[layerId]
-      if (canvas && imageEl) {
-        const ctx = canvas.getContext('2d')!
-        const img = new Image()
-        img.onload = () => {
-          ctx.clearRect(0, 0, canvas.width, canvas.height)
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-          if (invert) {
-            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-            const data = imgData.data
-            for (let i = 0; i < data.length; i += 4) {
-              // Grayscale intensity can be inverted as well, but alpha is the primary selection driver
-              data[i] = 255 - data[i]
-              data[i+1] = 255 - data[i+1]
-              data[i+2] = 255 - data[i+2]
-              data[i+3] = 255 - data[i+3]
-            }
-            ctx.putImageData(imgData, 0, 0)
-          }
-          schedRender()
-        }
-        img.src = `data:image/png;base64,${maskBase64}`
-      }
-    }
     window.addEventListener('lumio_mask_brush_size_change', handleBrushSize)
     window.addEventListener('lumio_is_mask_eraser_change', handleEraser)
-    window.addEventListener('lumio_set_mask', handleSetMask)
     return () => {
       window.removeEventListener('lumio_mask_brush_size_change', handleBrushSize)
       window.removeEventListener('lumio_is_mask_eraser_change', handleEraser)
-      window.removeEventListener('lumio_set_mask', handleSetMask)
     }
-  }, [imageEl, schedRender])
+  }, [])
 
   // ─── Panning ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -208,6 +180,39 @@ export function Canvas() {
       renderCanvas()
     })
   }, [renderCanvas])
+
+  useEffect(() => {
+    const handleSetMask = (e: Event) => {
+      const { layerId, maskBase64, invert } = (e as CustomEvent).detail
+      const canvas = maskCanvasesRef.current[layerId]
+      if (canvas && imageEl) {
+        const ctx = canvas.getContext('2d')!
+        const img = new Image()
+        img.onload = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height)
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+          if (invert) {
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+            const data = imgData.data
+            for (let i = 0; i < data.length; i += 4) {
+              data[i] = 255 - data[i]
+              data[i+1] = 255 - data[i+1]
+              data[i+2] = 255 - data[i+2]
+              data[i+3] = 255 - data[i+3]
+            }
+            ctx.putImageData(imgData, 0, 0)
+          }
+          schedRender()
+        }
+        img.src = `data:image/png;base64,${maskBase64}`
+      }
+    }
+    window.addEventListener('lumio_set_mask', handleSetMask)
+    return () => {
+      window.removeEventListener('lumio_set_mask', handleSetMask)
+    }
+  }, [imageEl, schedRender])
+
 
   const [cropBox, setCropBox] = useState<CropBox>({
     x: 0.1, y: 0.1, w: 0.8, h: 0.8
