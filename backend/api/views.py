@@ -104,7 +104,7 @@ class AIPlannerView(APIView):
         api_key = getattr(settings, 'GEMINI_API_KEY', '')
         if api_key:
             try:
-                url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}'
+                url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}'
                 payload = {
                     'contents': [{'parts': [{'text': f'{SYSTEM_PROMPT}\n\nUser request: "{prompt}"'}]}],
                     'generationConfig': {'responseMimeType': 'application/json'}
