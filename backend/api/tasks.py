@@ -734,13 +734,31 @@ def run_detection_task(self, image_id: str, detect_type: str):
         mask = np.zeros((h, w), dtype=np.uint8)
 
         if detect_type == 'face':
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
-            for (x, y, fw, fh) in faces:
-                center = (x + fw // 2, y + fh // 2)
-                axes = (fw // 2, int(fh // 2 * 1.25))
-                cv2.ellipse(mask, center, axes, 0, 0, 360, 255, -1)
+            try:
+                import mediapipe as mp
+                mp_face_detection = mp.solutions.face_detection
+                with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as face_detection:
+                    rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    results = face_detection.process(rgb_img)
+                    if results.detections:
+                        for detection in results.detections:
+                            bbox = detection.location_data.relative_bounding_box
+                            xmin = int(bbox.xmin * w)
+                            ymin = int(bbox.ymin * h)
+                            fw = int(bbox.width * w)
+                            fh = int(bbox.height * h)
+                            center = (xmin + fw // 2, ymin + fh // 2)
+                            axes = (fw // 2, int(fh // 2 * 1.25))
+                            cv2.ellipse(mask, center, axes, 0, 0, 360, 255, -1)
+            except Exception as mp_exc:
+                logger.warning('MediaPipe face detection failed or not available, falling back to Haar Cascade: %s', mp_exc)
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+                faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+                for (x, y, fw, fh) in faces:
+                    center = (x + fw // 2, y + fh // 2)
+                    axes = (fw // 2, int(fh // 2 * 1.25))
+                    cv2.ellipse(mask, center, axes, 0, 0, 360, 255, -1)
 
         elif detect_type == 'subject':
             from rembg import remove as rembg_remove, new_session
