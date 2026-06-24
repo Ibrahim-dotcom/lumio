@@ -6,6 +6,7 @@ import { callAIPlanner, detectAction } from '../../services/aiPlanner'
 import { CHIPS } from '../../data/presets'
 import { Sparkles, Send, ChevronUp, ChevronDown, Trash2, ArrowLeftRight, Check, Undo2 } from 'lucide-react'
 import { useBackgroundRemoval } from '../../hooks/useBackgroundRemoval'
+import { detectMask } from '../../services/api'
 
 export function PromptBar() {
   const [input, setInput] = useState('')
@@ -17,6 +18,7 @@ export function PromptBar() {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const imageEl = useEditorStore(s => s.imageEl)
+  const backendImageId = useEditorStore(s => s.backendImageId)
   const chatMessages = useEditorStore(s => s.chatMessages)
   const addChatMessage = useEditorStore(s => s.addChatMessage)
   const clearChat = useEditorStore(s => s.clearChat)
@@ -26,6 +28,7 @@ export function PromptBar() {
   const undo = useEditorStore(s => s.undo)
   const redo = useEditorStore(s => s.redo)
   const resetAllAdjustments = useEditorStore(s => s.resetAllAdjustments)
+  const addAdjustmentLayer = useEditorStore(s => s.addAdjustmentLayer)
 
   const { remove: removeBg, status: bgStatus, progress: bgProgress, isWorking: isRemoving } = useBackgroundRemoval()
 
@@ -167,6 +170,52 @@ export function PromptBar() {
 
     // Otherwise, query LLM for adjustment changes
     try {
+      let localTarget: 'face' | 'subject' | 'sky' | 'background' | null = null
+      let maskName = ''
+      const loText = text.toLowerCase()
+      
+      if (/\b(face|skin|eyes|cheeks)\b/i.test(loText)) {
+        localTarget = 'face'
+        maskName = 'Face Mask'
+      } else if (/\b(sky|clouds)\b/i.test(loText)) {
+        localTarget = 'sky'
+        maskName = 'Sky Mask'
+      } else if (/\b(background|bg)\b/i.test(loText)) {
+        localTarget = 'background'
+        maskName = 'Background Mask'
+      } else if (/\b(subject|foreground|person|model|car|shoes|clothing)\b/i.test(loText)) {
+        localTarget = 'subject'
+        maskName = 'Subject Mask'
+      }
+
+      if (localTarget && backendImageId) {
+        try {
+          const apiTarget = localTarget === 'background' ? 'subject' : localTarget
+          const detectRes = await detectMask(backendImageId, apiTarget)
+          
+          addAdjustmentLayer()
+          const activeId = useEditorStore.getState().activeAdjustmentLayerId
+          if (activeId) {
+            useEditorStore.setState(s => ({
+              adjustmentLayers: s.adjustmentLayers.map(l =>
+                l.id === activeId ? { ...l, name: maskName } : l
+              )
+            }))
+            window.dispatchEvent(
+              new CustomEvent('lumio_set_mask', {
+                detail: {
+                  layerId: activeId,
+                  maskBase64: detectRes.mask,
+                  invert: localTarget === 'background'
+                }
+              })
+            )
+          }
+        } catch (err) {
+          console.error('Smart masking detection failed:', err)
+        }
+      }
+
       const result = await callAIPlanner(text)
       setAiIsTyping(false)
 

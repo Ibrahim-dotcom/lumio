@@ -709,3 +709,101 @@ def run_batch_job(self, batch_job_id: str):
     job.save(update_fields=['status'])
     logger.info('run_batch_job %s completed: %d/%d processed', batch_job_id, job.processed, job.total)
     return f'{job.processed}/{job.total} images processed'
+
+
+# ─── Task 7: Smart Detection Masking ──────────────────────────────────────────
+
+@shared_task(bind=True, max_retries=1, default_retry_delay=5)
+def run_detection_task(self, image_id: str, detect_type: str):
+    """
+    Generate a binary/grayscale mask for face, subject (foreground), or sky.
+    Returns a base64 encoded PNG mask.
+    """
+    from api.models import Image as ImageModel
+    try:
+        instance = ImageModel.objects.get(id=image_id)
+    except ImageModel.DoesNotExist:
+        logger.error('run_detection_task: Image %s not found', image_id)
+        return {'error': f'Image {image_id} not found'}
+
+    try:
+        orig_path = instance.original_file.path
+        img = _load_cv2(orig_path)
+        h, w = img.shape[:2]
+
+        mask = np.zeros((h, w), dtype=np.uint8)
+
+        if detect_type == 'face':
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+            for (x, y, fw, fh) in faces:
+                center = (x + fw // 2, y + fh // 2)
+                axes = (fw // 2, int(fh // 2 * 1.25))
+                cv2.ellipse(mask, center, axes, 0, 0, 360, 255, -1)
+
+        elif detect_type == 'subject':
+            from rembg import remove as rembg_remove, new_session
+            with open(orig_path, 'rb') as f:
+                input_bytes = f.read()
+            session = new_session('bria_rmbg')
+            output_bytes = rembg_remove(input_bytes, session=session)
+            out_img = cv2.imdecode(np.frombuffer(output_bytes, np.uint8), cv2.IMREAD_UNCHANGED)
+            if len(out_img.shape) == 4:
+                mask = out_img[:, :, 3]
+            else:
+                gray = cv2.cvtColor(out_img, cv2.COLOR_BGR2GRAY)
+                _, mask = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
+
+        elif detect_type == 'sky':
+            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+            
+            # Blue/cyan sky range
+            lower_blue = np.array([85, 30, 50])
+            upper_blue = np.array([140, 255, 255])
+            mask_blue = cv2.inRange(hsv, lower_blue, upper_blue)
+            
+            # Bright clouds / light sky range
+            lower_bright = np.array([0, 0, 150])
+            upper_bright = np.array([180, 45, 255])
+            mask_bright = cv2.inRange(hsv, lower_bright, upper_bright)
+            
+            # Sunset/Sunrise orange/red/yellow ranges
+            lower_sunset1 = np.array([0, 20, 100])
+            upper_sunset1 = np.array([30, 255, 255])
+            mask_sunset1 = cv2.inRange(hsv, lower_sunset1, upper_sunset1)
+            
+            lower_sunset2 = np.array([150, 20, 100])
+            upper_sunset2 = np.array([180, 255, 255])
+            mask_sunset2 = cv2.inRange(hsv, lower_sunset2, upper_sunset2)
+            
+            color_mask = mask_blue | mask_bright | mask_sunset1 | mask_sunset2
+            
+            # Keep components in upper 45% of image
+            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(color_mask)
+            sky_candidates = np.zeros((h, w), dtype=np.uint8)
+            for i in range(1, num_labels):
+                stat = stats[i]
+                top = stat[cv2.CC_STAT_TOP]
+                area = stat[cv2.CC_STAT_AREA]
+                if top < h * 0.45 and area > (h * w) * 0.005:
+                    sky_candidates[labels == i] = 255
+            
+            # Close holes and blur slightly
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+            closed = cv2.morphologyEx(sky_candidates, cv2.MORPH_CLOSE, kernel)
+            mask = cv2.GaussianBlur(closed, (7, 7), 0)
+
+        else:
+            return {'error': f'Unsupported detection type: {detect_type}'}
+
+        # Encode mask as PNG
+        _, buf = cv2.imencode('.png', mask)
+        import base64
+        b64_data = base64.b64encode(buf.tobytes()).decode('utf-8')
+        return {'mask': b64_data}
+
+    except Exception as exc:
+        logger.exception('run_detection_task failed')
+        raise self.retry(exc=exc)
+

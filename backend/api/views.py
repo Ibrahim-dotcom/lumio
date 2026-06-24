@@ -9,7 +9,7 @@ from api.serializers import (
     ProjectSerializer, ImageSerializer,
     EditHistorySerializer, WorkflowSerializer, BatchJobSerializer,
 )
-from api.tasks import process_image_adjustments, run_background_removal, run_spot_healing, run_clone_stamp, run_workflow_task, run_batch_job, run_lama_heal_task
+from api.tasks import process_image_adjustments, run_background_removal, run_spot_healing, run_clone_stamp, run_workflow_task, run_batch_job, run_lama_heal_task, run_detection_task
 from PIL import Image as PILImage
 import json
 import os
@@ -158,6 +158,36 @@ class HealImageView(APIView):
         except Exception as e:
             logger.exception("HealImageView failed")
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AIDetectView(APIView):
+    """
+    POST /api/ai/detect/
+    Body: { "image_id": string, "type": "face"|"subject"|"sky" }
+    Returns: { "mask": "base64_encoded_png_data" }
+    """
+
+    def post(self, request):
+        image_id = request.data.get('image_id')
+        detect_type = request.data.get('type')
+
+        if not image_id or not detect_type:
+            return Response({'error': 'image_id and type are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Kick off Celery task and wait synchronously for the generated base64 mask
+            task = run_detection_task.delay(image_id, detect_type)
+            result = task.get(timeout=30)
+
+            if isinstance(result, dict) and 'error' in result:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response(result)
+
+        except Exception as e:
+            logger.exception("AIDetectView failed")
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class ProjectViewSet(viewsets.ModelViewSet):

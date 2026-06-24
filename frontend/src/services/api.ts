@@ -89,6 +89,15 @@ export async function healImage(imageId: string, maskBlob: Blob): Promise<{ url:
   return res.json()
 }
 
+// ─── AI DETECTION (Smart Masking) ──────────────────────────────────────────────
+export async function detectMask(imageId: string, type: 'face' | 'subject' | 'sky'): Promise<{ mask: string }> {
+  return api<{ mask: string }>('/ai/detect/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image_id: imageId, type }),
+  })
+}
+
 // ─── AI PLANNER ───────────────────────────────────────────────────────────────────
 // ─── Images ───────────────────────────────────────────────────────────────────
 export async function uploadImage(
