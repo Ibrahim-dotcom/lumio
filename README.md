@@ -17,7 +17,7 @@ Lumio is a production-grade, AI-native image editing platform built for content 
 - **HSL Panel** — Per-hue Hue / Saturation / Luminance control across 8 colour channels.
 - **Lightroom-style Adjustments** — Exposure, Brightness, Contrast, Saturation, Hue, Temperature, Tint, Highlights, Shadows, Sharpness, Vignette.
 - **Background Removal** — AI-powered via **BRIA RMBG-1.4** (state-of-the-art ONNX segmentation model), processed asynchronously via Celery.
-- **Spot Healing Brush** — OpenCV inpainting (TELEA algorithm) with full support for transparent 4-channel BGRA PNGs.
+- **Spot Healing Brush / Content-Aware Fill** — Powered by Samsung AI's **LaMa** (Resolution-robust Large Mask Inpainting) model to seamlessly remove objects and hallucinate backgrounds asynchronously via Celery.
 - **Clone Stamp Tool** — Circular brush clone stamping with source crosshair overlay (`Alt+Click`), processed asynchronously via Celery + OpenCV.
 - **Text Layers Tool** — Draggable, double-clickable, editable overlay text layers with font size, opacity, weight, and colour settings. Burned into the canvas at original resolution on export.
 - **Shape Layers Tool** — Add and manipulate vector shape layers (rectangles and circles).
@@ -30,12 +30,11 @@ Lumio is a production-grade, AI-native image editing platform built for content 
 - **Before/After Compare** — Hold to compare against original image.
 - **Export** — JPEG / PNG / WebP with quality control.
 - **Automation Workflows** — Create named multi-step workflows (e.g. Remove BG → Sharpen → Export) and execute them as a single Celery task (`run_workflow_task`).
+- **Batch Processing** — Upload 1–1000s of images via the Batch tab. Apply current editor adjustments or any saved workflow to every image asynchronously via Celery. Real-time progress queue with per-image result cards and one-click downloads.
 
 ### Coming Next
 
-- **Batch Processing** — Apply any workflow to 10–10 000 images in one click with a progress queue UI.
 - Sky Replacement
-- Content-Aware Fill / Object Removal
 - Authentication & User Accounts
 - S3 Storage Integration
 
@@ -186,9 +185,9 @@ PHOTOTOOL/
 | 6 — Photoshop Features (crop, clone stamp, healing, bg removal) | ✅ Done |
 | 7 — AI Planner (NL → edit params via Gemini) | ✅ Done |
 | 8 — Computer Vision (BRIA RMBG-1.4 segmentation) | ✅ Done |
-| 9 — Generative AI (future) | 🔜 Planned |
+| 9 — Generative AI (LaMa Content-Aware Object Removal) | ✅ Done |
 | 10 — Automation Workflows (named multi-step Celery tasks) | ✅ Done |
-| 11 — Batch Processing (bulk apply workflows) | 🚧 In Progress |
+| 11 — Batch Processing (bulk apply workflows to 100s of images) | ✅ Done |
 | 12 — Presets (built-in + custom) | ✅ Done |
 
 ---

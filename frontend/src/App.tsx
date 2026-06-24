@@ -3,6 +3,7 @@ import { LeftPanel } from './components/LeftPanel/LeftPanel'
 import { Canvas } from './components/Canvas/Canvas'
 import { PromptBar } from './components/PromptBar/PromptBar'
 import { RightPanel } from './components/RightPanel/RightPanel'
+import { BatchPreviewOverlay } from './components/Canvas/BatchPreviewOverlay'
 
 function App() {
   return (
@@ -19,9 +20,10 @@ function App() {
       <Toolbar />
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <LeftPanel />
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
           <Canvas />
           <PromptBar />
+          <BatchPreviewOverlay />
         </div>
         <RightPanel />
       </div>

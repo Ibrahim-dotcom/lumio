@@ -56,6 +56,9 @@ async function api<T>(
     const text = await res.text()
     throw new Error(`[lumio-api] ${res.status} ${path}: ${text}`)
   }
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return undefined as unknown as T
+  }
   return res.json() as Promise<T>
 }
 
@@ -72,6 +75,21 @@ export async function getProject(id: string): Promise<ApiProject> {
   return api<ApiProject>(`/projects/${id}/`)
 }
 
+// ─── AI HEALING (LaMa) ────────────────────────────────────────────────────────
+export async function healImage(imageId: string, maskBlob: Blob): Promise<{ url: string }> {
+  const formData = new FormData()
+  formData.append('image_id', imageId)
+  formData.append('mask', maskBlob, 'mask.png')
+
+  const res = await fetch(`${BASE}/api/ai/heal/`, {
+    method: 'POST',
+    body: formData
+  })
+  if (!res.ok) throw new Error('Healing failed')
+  return res.json()
+}
+
+// ─── AI PLANNER ───────────────────────────────────────────────────────────────────
 // ─── Images ───────────────────────────────────────────────────────────────────
 export async function uploadImage(
   projectId: string,
@@ -110,16 +128,6 @@ export async function removeBackground(
   })
 }
 
-export async function healImage(
-  imageId: string,
-  strokePoints: [number, number, number][],
-): Promise<ApiTask> {
-  return api<ApiTask>(`/images/${imageId}/heal/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stroke_points: strokePoints }),
-  })
-}
 
 export async function getTaskStatus(imageId: string): Promise<ApiImage> {
   return api<ApiImage>(`/images/${imageId}/`)
@@ -193,4 +201,84 @@ export async function runWorkflow(workflowId: string, imageId: string): Promise<
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ image_id: imageId }),
   })
+}
+
+export async function deleteWorkflow(workflowId: string): Promise<void> {
+  await api<void>(`/workflows/${workflowId}/`, { method: 'DELETE' })
+}
+
+// ─── Batch Processing ─────────────────────────────────────────────────────────
+
+export interface ApiBatchJob {
+  id: string
+  name: string
+  workflow: string | null
+  adjustments: Record<string, number>
+  image_ids: string[]
+  status: 'pending' | 'running' | 'done' | 'failed'
+  total: number
+  processed: number
+  failed_count: number
+  results: Array<{ image_id: string; output_url: string | null; error: string | null }>
+  created_at: string
+  updated_at: string
+}
+
+/** Create a batch job record (does NOT start it yet). */
+export async function createBatchJob(
+  name: string,
+  imageIds: string[],
+  options?: { workflowId?: string; adjustments?: Record<string, number> },
+): Promise<ApiBatchJob> {
+  return api<ApiBatchJob>('/batch/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      image_ids: imageIds,
+      workflow: options?.workflowId ?? null,
+      adjustments: options?.adjustments ?? {},
+    }),
+  })
+}
+
+/** Start a previously created batch job. */
+export async function startBatchJob(batchJobId: string): Promise<{ status: string; task_id: string }> {
+  return api<{ status: string; task_id: string }>(`/batch/${batchJobId}/start/`, { method: 'POST' })
+}
+
+/** Poll a batch job for current progress. */
+export async function getBatchJob(batchJobId: string): Promise<ApiBatchJob> {
+  return api<ApiBatchJob>(`/batch/${batchJobId}/`)
+}
+
+/** List all batch jobs (most recent first). */
+export async function listBatchJobs(): Promise<ApiBatchJob[]> {
+  return api<ApiBatchJob[]>('/batch/')
+}
+
+/**
+ * Upload multiple raw image files + immediately kick off a batch job.
+ * @param files    Array of File objects selected by the user.
+ * @param name     Display name for the batch job.
+ * @param options  Optional workflowId or inline adjustments JSON string.
+ */
+export async function uploadAndStartBatch(
+  files: File[],
+  name: string,
+  options?: { workflowId?: string; adjustments?: Record<string, number> },
+): Promise<{ batch_job_id: string; task_id: string; image_ids: string[]; message: string }> {
+  const form = new FormData()
+  form.append('name', name)
+  if (options?.workflowId) form.append('workflow_id', options.workflowId)
+  if (options?.adjustments) form.append('adjustments', JSON.stringify(options.adjustments))
+  for (const file of files) form.append('files', file)
+
+  const url = `${BASE}/api/batch/upload_and_start/`
+  const res = await fetch(url, { method: 'POST', headers: { Accept: 'application/json' }, body: form })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`[lumio-api] ${res.status} /batch/upload_and_start/: ${text}`)
+  }
+  return res.json()
 }

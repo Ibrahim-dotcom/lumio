@@ -45,3 +45,35 @@ class Workflow(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class BatchJob(models.Model):
+    """A batch processing job that applies a workflow or adjustments to many images."""
+    STATUS_CHOICES = [
+        ('pending',  'Pending'),
+        ('running',  'Running'),
+        ('done',     'Done'),
+        ('failed',   'Failed'),
+    ]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=255, default='Batch Job')
+    workflow = models.ForeignKey(
+        Workflow, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='batch_jobs'
+    )
+    # Inline adjustments (if no workflow is linked)
+    adjustments = models.JSONField(default=dict)
+    # List of image IDs to process
+    image_ids = models.JSONField(default=list)
+    # Status tracking
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='pending')
+    total = models.IntegerField(default=0)
+    processed = models.IntegerField(default=0)
+    failed_count = models.IntegerField(default=0)
+    # Per-item results: [{image_id, output_url, error}]
+    results = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name} [{self.status}] {self.processed}/{self.total}"

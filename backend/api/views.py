@@ -4,14 +4,16 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.conf import settings
 from django.db.models import Q
-from api.models import Project, Image, EditHistory, Workflow
+from api.models import Project, Image, EditHistory, Workflow, BatchJob
 from api.serializers import (
     ProjectSerializer, ImageSerializer,
-    EditHistorySerializer, WorkflowSerializer,
+    EditHistorySerializer, WorkflowSerializer, BatchJobSerializer,
 )
-from api.tasks import process_image_adjustments, run_background_removal, run_spot_healing, run_clone_stamp, run_workflow_task
+from api.tasks import process_image_adjustments, run_background_removal, run_spot_healing, run_clone_stamp, run_workflow_task, run_batch_job, run_lama_heal_task
 from PIL import Image as PILImage
 import json
+import os
+from django.core.files.storage import default_storage
 import requests as http_requests
 import logging
 
@@ -123,6 +125,39 @@ class AIPlannerView(APIView):
         return Response({'deltas': deltas})
 
 
+class HealImageView(APIView):
+    """
+    POST /api/ai/heal/
+    Body: multipart/form-data
+      - image_id: string
+      - mask: file (binary mask image)
+    
+    Runs LaMa inpainting on the backend synchronously via Celery.
+    Returns: { "url": str }
+    """
+
+    def post(self, request):
+        image_id = request.data.get('image_id')
+        mask_file = request.FILES.get('mask')
+
+        if not image_id or not mask_file:
+            return Response({'error': 'image_id and mask are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Save mask to temp file for Celery
+        try:
+            mask_path = default_storage.save(f"tmp_mask_{image_id}.png", mask_file)
+            full_mask_path = default_storage.path(mask_path)
+            
+            # Kick off celery task (synchronously wait for UI response)
+            task = run_lama_heal_task.delay(image_id, full_mask_path)
+            
+            # Wait for result (in a real prod app we'd return 202 and poll, but for UI responsiveness we can wait briefly)
+            result_url = task.get(timeout=30)
+            return Response({'url': result_url})
+            
+        except Exception as e:
+            logger.exception("HealImageView failed")
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
@@ -300,4 +335,96 @@ class WorkflowViewSet(viewsets.ModelViewSet):
             'status': 'queued',
             'task_id': task.id,
             'message': 'Workflow runner started.',
+        }, status=status.HTTP_202_ACCEPTED)
+
+
+class BatchJobViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for BatchJobs.
+    POST /api/batch/ — create a job (provide image_ids + optional workflow or adjustments)
+    POST /api/batch/<id>/start/ — queue the job via Celery
+    POST /api/batch/<id>/upload_and_start/ — accept multipart image files, auto-upload each,
+        then start the batch. Use when you want to submit raw files directly from the browser.
+    GET  /api/batch/<id>/ — poll status (processed, total, results)
+    """
+    serializer_class = BatchJobSerializer
+    queryset = BatchJob.objects.all().order_by('-created_at')
+
+    @action(detail=True, methods=['post'])
+    def start(self, request, pk=None):
+        """Queue this batch job via Celery."""
+        job = self.get_object()
+        if job.status == 'running':
+            return Response({'detail': 'Job is already running.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not job.image_ids:
+            return Response({'detail': 'No image_ids provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        job.status = 'pending'
+        job.save(update_fields=['status'])
+        task = run_batch_job.delay(str(job.id))
+        return Response({
+            'status': 'queued',
+            'task_id': task.id,
+            'message': f'Batch job started: {len(job.image_ids)} images queued.',
+        }, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=False, methods=['post'])
+    def upload_and_start(self, request):
+        """
+        Accept multiple raw image files via multipart (field name: 'files'),
+        auto-create a Project + upload each as an Image, then launch a batch job.
+        Optional body fields:
+          - name (str): job name
+          - workflow_id (str): optional workflow UUID
+          - adjustments (JSON str): optional inline adjustments dict
+        """
+        files = request.FILES.getlist('files')
+        if not files:
+            return Response({'detail': 'No files provided. Send files[] multipart.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        job_name = request.data.get('name', f'Batch Job ({len(files)} images)')
+        workflow_id = request.data.get('workflow_id', None)
+        adjustments_raw = request.data.get('adjustments', '{}')
+        try:
+            adjustments = json.loads(adjustments_raw) if isinstance(adjustments_raw, str) else adjustments_raw
+        except Exception:
+            adjustments = {}
+
+        # Create one project for this batch
+        project = Project.objects.create(name=job_name)
+
+        image_ids = []
+        for file_obj in files:
+            instance = Image(project=project, original_file=file_obj)
+            instance.size_bytes = file_obj.size
+            try:
+                file_obj.seek(0)
+                with PILImage.open(file_obj) as img:
+                    instance.width, instance.height = img.size
+            except Exception:
+                pass
+            instance.save()
+            image_ids.append(str(instance.id))
+
+        # Create and queue the BatchJob
+        batch_kwargs = {
+            'name': job_name,
+            'image_ids': image_ids,
+            'adjustments': adjustments,
+        }
+        if workflow_id:
+            try:
+                wf = Workflow.objects.get(id=workflow_id)
+                batch_kwargs['workflow'] = wf
+            except Workflow.DoesNotExist:
+                pass
+
+        job = BatchJob.objects.create(**batch_kwargs)
+        task = run_batch_job.delay(str(job.id))
+
+        return Response({
+            'batch_job_id': str(job.id),
+            'task_id': task.id,
+            'image_ids': image_ids,
+            'message': f'Batch started: {len(files)} images queued.',
         }, status=status.HTTP_202_ACCEPTED)

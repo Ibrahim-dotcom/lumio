@@ -279,7 +279,7 @@ export function Canvas() {
     }
   }, [activeTool, imageEl])
 
-  const handleHealRequest = useCallback(async (points: [number, number, number][]) => {
+  const handleHealRequest = useCallback(async (maskBlob: Blob) => {
     if (!imageEl) return
     setIsHealing(true)
     showToast('Healing spot...')
@@ -314,32 +314,25 @@ export function Canvas() {
     }
 
     try {
-      void await api.healImage(activeImageId, points)
-      const deadline = Date.now() + 60000
-      while (Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 1500))
-        const status = await api.getTaskStatus(activeImageId)
-        if (status.processed_file) {
-          const backendRoot = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
-          const url = status.processed_file.startsWith('http')
-            ? status.processed_file
-            : `${backendRoot}${status.processed_file}`
+      const response = await api.healImage(activeImageId, maskBlob)
+      const backendRoot = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+      const url = response.url.startsWith('http') ? response.url : `${backendRoot}${response.url}`
 
-          const img = new Image()
-          img.crossOrigin = 'anonymous'
-          img.onload = () => {
-            swapImage(img, imageName, imageSize)
-            pushHistory('Spot Heal')
-            showToast('Healed spot!')
-            setIsHealing(false)
-            const canvas = overlayCanvasRef.current
-            if (canvas) canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height)
-          }
-          img.src = url
-          return
-        }
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        swapImage(img, imageName, imageSize)
+        pushHistory('Heal (Content-Aware)')
+        showToast('Healed spot!')
+        setIsHealing(false)
+        const canvas = overlayCanvasRef.current
+        if (canvas) canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height)
       }
-      throw new Error('Spot healing timed out')
+      img.onerror = () => {
+        showToast('Failed to load healed image', true)
+        setIsHealing(false)
+      }
+      img.src = url
     } catch (err) {
       showToast('Healing failed', true)
       setIsHealing(false)
@@ -357,6 +350,14 @@ export function Canvas() {
     const W = imageEl.naturalWidth
     const H = imageEl.naturalHeight
 
+    // Off-screen canvas for the pure binary mask
+    const maskCanvas = document.createElement('canvas')
+    maskCanvas.width = W
+    maskCanvas.height = H
+    const mCtx = maskCanvas.getContext('2d')!
+    mCtx.fillStyle = '#000'
+    mCtx.fillRect(0, 0, W, H)
+
     const clientX = e.clientX - rect.left
     const clientY = e.clientY - rect.top
     const px = (clientX / rect.width) * W
@@ -371,7 +372,16 @@ export function Canvas() {
     ctx.beginPath()
     ctx.moveTo(clientX, clientY)
 
-    const newStrokes: [number, number, number][] = [[px, py, pr]]
+    mCtx.lineCap = 'round'
+    mCtx.lineJoin = 'round'
+    mCtx.strokeStyle = '#fff'
+    mCtx.lineWidth = pr * 2
+    mCtx.beginPath()
+    mCtx.moveTo(px, py)
+    
+    // Draw initial point
+    mCtx.lineTo(px, py)
+    mCtx.stroke()
 
     function handleMouseMove(ev: MouseEvent) {
       const cX = ev.clientX - rect.left
@@ -382,14 +392,20 @@ export function Canvas() {
       ctx.lineTo(cX, cY)
       ctx.stroke()
 
-      newStrokes.push([ipx, ipy, pr])
+      mCtx.lineTo(ipx, ipy)
+      mCtx.stroke()
     }
 
     function handleMouseUp() {
       setIsBrushing(false)
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
-      handleHealRequest(newStrokes)
+
+      maskCanvas.toBlob(blob => {
+        if (blob) {
+          handleHealRequest(blob)
+        }
+      }, 'image/png')
     }
 
     window.addEventListener('mousemove', handleMouseMove)

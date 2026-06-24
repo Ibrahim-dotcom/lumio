@@ -252,6 +252,13 @@ export interface EditorStore {
   processingSubMessage: string
   processingStep: number
   setProcessing: (on: boolean, msg?: string, sub?: string, step?: number) => void
+  toastMsg: string | null
+  toastError: boolean
+  showToast: (msg: string, isError?: boolean) => void
+
+  // Batch Preview State
+  batchPreviewId: string | null
+  setBatchPreview: (id: string | null) => void
 
   toast: { message: string; isError: boolean; key: number } | null
   showToast: (msg: string, isError?: boolean) => void
@@ -634,5 +641,8 @@ export const useEditorStore = create<EditorStore>()(
     // Workflows
     workflows: [],
     setWorkflows: (workflows) => set({ workflows }),
+
+    batchPreviewId: null,
+    setBatchPreview: (id) => set({ batchPreviewId: id }),
   }))
 )
