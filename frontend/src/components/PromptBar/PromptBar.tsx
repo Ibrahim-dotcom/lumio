@@ -216,10 +216,10 @@ export function PromptBar() {
         }
       }
 
-      const result = await callAIPlanner(text)
+      const { deltas, source } = await callAIPlanner(text)
       setAiIsTyping(false)
 
-      if ('_unsupported' in result && result._unsupported) {
+      if ('_unsupported' in deltas && deltas._unsupported) {
         addChatMessage({
           id: Math.random().toString(),
           role: 'assistant',
@@ -229,12 +229,12 @@ export function PromptBar() {
         return
       }
 
-      const deltas = result as Partial<Adjustments>
-      applyAdjustmentDelta(deltas)
+      const adjustmentsDeltas = deltas as Partial<Adjustments>
+      applyAdjustmentDelta(adjustmentsDeltas)
       pushHistory(text)
 
-      const appliedKeys = Object.keys(deltas)
-      const detailsList = Object.entries(deltas)
+      const appliedKeys = Object.keys(adjustmentsDeltas)
+      const detailsList = Object.entries(adjustmentsDeltas)
         .map(([k, v]) => `${k}: ${v! > 0 ? '+' : ''}${v}`)
         .join(', ')
 
@@ -245,7 +245,7 @@ export function PromptBar() {
         timestamp: Date.now(),
         actionCard: {
           type: 'adjustments',
-          summary: `Applied ${appliedKeys.length} changes`,
+          summary: `Applied ${appliedKeys.length} changes (${source === 'gemini' ? 'AI Planner ✦' : 'Rule Fallback ⚙'})`,
           details: detailsList
         }
       })

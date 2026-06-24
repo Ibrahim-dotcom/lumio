@@ -63,12 +63,23 @@ function localFallback(prompt: string): Partial<Adjustments> | { _unsupported: t
 // ─── Main entrypoint — calls Django backend (Gemini key stays server-side) ───
 export type AIPlannerResult = Partial<Adjustments> | { _unsupported: true }
 
-export async function callAIPlanner(prompt: string): Promise<AIPlannerResult> {
+export interface AIPlannerResponse {
+  deltas: AIPlannerResult
+  source: 'gemini' | 'fallback'
+}
+
+export async function callAIPlanner(prompt: string): Promise<AIPlannerResponse> {
   try {
-    const deltas = await callAIPlannerBackend(prompt)
-    return deltas as AIPlannerResult
+    const res = await callAIPlannerBackend(prompt)
+    return {
+      deltas: res.deltas as AIPlannerResult,
+      source: res.source as 'gemini' | 'fallback'
+    }
   } catch (err) {
     console.warn('[Lumio] Backend AI planner unreachable, using local fallback.', err)
-    return localFallback(prompt)
+    return {
+      deltas: localFallback(prompt) as AIPlannerResult,
+      source: 'fallback'
+    }
   }
 }

@@ -161,13 +161,12 @@ export async function listEditHistory(projectId: string): Promise<ApiEditHistory
 }
 
 // ─── AI Planner Proxy ────────────────────────────────────────────────────────
-export async function callAIPlannerBackend(prompt: string): Promise<Record<string, unknown>> {
-  const result = await api<{ deltas: Record<string, unknown> }>('/ai/plan/', {
+export async function callAIPlannerBackend(prompt: string): Promise<{ deltas: Record<string, unknown>; source: string }> {
+  return api<{ deltas: Record<string, unknown>; source: string }>('/ai/plan/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt }),
   })
-  return result.deltas
 }
 
 // ─── Clone Stamp ─────────────────────────────────────────────────────────────

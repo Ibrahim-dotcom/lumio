@@ -115,14 +115,14 @@ class AIPlannerView(APIView):
                 text = raw['candidates'][0]['content']['parts'][0]['text'].strip()
                 deltas = json.loads(text)
                 logger.info('[AI] Gemini responded for prompt: %s', prompt[:60])
-                return Response({'deltas': deltas})
+                return Response({'deltas': deltas, 'source': 'gemini'})
             except Exception as exc:
                 logger.warning('[AI] Gemini failed (%s), using fallback', exc)
 
         # Fallback to keyword parser
         deltas = _fallback_parse(prompt)
         logger.info('[AI] Fallback parse for: %s', prompt[:60])
-        return Response({'deltas': deltas})
+        return Response({'deltas': deltas, 'source': 'fallback'})
 
 
 class HealImageView(APIView):
