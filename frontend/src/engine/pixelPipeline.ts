@@ -380,6 +380,18 @@ export function drawHistogram(
   drawCh(R, 'rgba(255,80,80,0.44)')
   drawCh(G, 'rgba(60,210,100,0.44)')
   drawCh(B, 'rgba(90,140,255,0.44)')
+
+  // ── Mirror to the visible right-panel histogram ──────────────────────────────
+  const visibleHist = document.getElementById('lumio-histogram') as HTMLCanvasElement | null
+  if (visibleHist && visibleHist !== histCanvas) {
+    const parentW = visibleHist.parentElement?.clientWidth
+    const vw = parentW ? parentW - 24 : hw
+    visibleHist.width = vw
+    visibleHist.height = 50
+    const vx = visibleHist.getContext('2d')!
+    vx.clearRect(0, 0, vw, 50)
+    vx.drawImage(histCanvas, 0, 0, hw, 50, 0, 0, vw, 50)
+  }
 }
 
 // ─── Preset preview renderer ──────────────────────────────────────────────────

@@ -1073,6 +1073,32 @@ export function Canvas() {
     if (f) loadFile(f)
   }
 
+  // ─── Clipboard Paste (Ctrl/Cmd+V) ────────────────────────────────────────────
+  useEffect(() => {
+    async function handlePaste(e: ClipboardEvent) {
+      // Don't intercept paste in text inputs
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable)
+      ) return
+
+      const items = Array.from(e.clipboardData?.items ?? [])
+      const imgItem = items.find(it => it.type.startsWith('image/'))
+      if (!imgItem) return
+
+      e.preventDefault()
+      const file = imgItem.getAsFile()
+      if (!file) return
+
+      showToast('Pasting image from clipboard…')
+      loadFile(file)
+    }
+
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [loadFile, showToast])
+
   // ─── Split Screen Dragging ───────────────────────────────────────────────────
   const handleSplitDividerMouseDown = (e: React.MouseEvent) => {
     e.preventDefault()

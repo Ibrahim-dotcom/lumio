@@ -28,6 +28,7 @@ export function KeyboardShortcutsModal() {
       title: 'Canvas & Navigation',
       icon: <Eye size={14} />,
       items: [
+        { keys: ['Ctrl', 'V'], desc: 'Paste image from clipboard' },
         { keys: ['Space', 'Hold'], desc: 'Compare Before / After' },
         { keys: ['Space', 'Drag'], desc: 'Pan Canvas' },
         { keys: ['Ctrl', 'Wheel'], desc: 'Zoom Canvas' },
