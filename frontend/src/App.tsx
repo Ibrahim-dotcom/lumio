@@ -4,6 +4,7 @@ import { Canvas } from './components/Canvas/Canvas'
 import { PromptBar } from './components/PromptBar/PromptBar'
 import { RightPanel } from './components/RightPanel/RightPanel'
 import { BatchPreviewOverlay } from './components/Canvas/BatchPreviewOverlay'
+import { KeyboardShortcutsModal } from './components/Toolbar/KeyboardShortcutsModal'
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
           <Canvas />
           <PromptBar />
           <BatchPreviewOverlay />
+          <KeyboardShortcutsModal />
         </div>
         <RightPanel />
       </div>

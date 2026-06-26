@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react'
-import { motion, AnimatePresence, Reorder } from 'framer-motion'
+import { useEffect, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useEditorStore } from '../../store/editorStore'
 import * as api from '../../services/api'
 import {
@@ -69,12 +69,10 @@ function makeDefaultStep(type: StepType, adjustments: Record<string, number>): W
 // ─── Single Step Card ─────────────────────────────────────────────────────────
 function StepCard({
   step,
-  index,
   onRemove,
   onChange,
 }: {
   step: WorkflowStep
-  index: number
   onRemove: () => void
   onChange: (updated: WorkflowStep) => void
 }) {
@@ -234,7 +232,7 @@ export function WorkflowsTab() {
   }, [setWorkflows, showToast])
 
   function addStep(type: StepType) {
-    setSteps(prev => [...prev, makeDefaultStep(type, adjustments)])
+    setSteps(prev => [...prev, makeDefaultStep(type, adjustments as unknown as Record<string, number>)])
   }
 
   function removeStep(index: number) {
@@ -396,7 +394,6 @@ export function WorkflowsTab() {
                       <StepCard
                         key={`${step.type}-${i}`}
                         step={step}
-                        index={i}
                         onRemove={() => removeStep(i)}
                         onChange={updated => updateStep(i, updated)}
                       />

@@ -91,7 +91,7 @@ export function BatchPreviewOverlay() {
             </span>
             {imageDetails && (
               <span style={{ fontSize: 11, color: 'var(--t3)', marginLeft: 8 }}>
-                {imageDetails.filename}
+                {imageDetails.original_file.split('/').pop()}
               </span>
             )}
           </div>

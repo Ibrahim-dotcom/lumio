@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, Download } from 'lucide-react'
-import { useEditorStore, HSL_NAMES, DEFAULT_CURVES, DEFAULT_COLOR_GRADING } from '../../store/editorStore'
-import type { Adjustments, HSLName, CurvesState, ColorGradingState, Point, GradingWheel } from '../../store/editorStore'
+import { useEditorStore, HSL_NAMES } from '../../store/editorStore'
+import type { Adjustments, HSLName, GradingWheel } from '../../store/editorStore'
 import { PRESETS } from '../../data/presets'
 import { renderPresetPreview } from '../../engine/pixelPipeline'
 
@@ -147,7 +147,6 @@ function Slider({
   min: number
   max: number
 }) {
-  const activeAdjustmentLayerId = useEditorStore(s => s.activeAdjustmentLayerId)
   const value = useEditorStore(s => {
     if (s.activeAdjustmentLayerId) {
       const layer = s.adjustmentLayers.find(l => l.id === s.activeAdjustmentLayerId)
@@ -435,7 +434,6 @@ function PresetGrid() {
 // ─── Right Panel ──────────────────────────────────────────────────────────────
 export function RightPanel() {
   const imageEl = useEditorStore(s => s.imageEl)
-  const activeAdjustmentLayerId = useEditorStore(s => s.activeAdjustmentLayerId)
   const activeAdjustmentLayer = useEditorStore(s => s.adjustmentLayers.find(l => l.id === s.activeAdjustmentLayerId))
   const resetSectionKeys = useEditorStore(s => s.resetSectionKeys)
   const pushHistory = useEditorStore(s => s.pushHistory)

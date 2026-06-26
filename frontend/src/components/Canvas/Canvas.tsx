@@ -16,6 +16,9 @@ export function Canvas() {
   const stageRef = useRef<HTMLDivElement>(null)
   const rafRef = useRef<number | null>(null)
   const [comparing, setComparing] = useState(false)
+  const [splitMode, setSplitMode] = useState(false)
+  const [splitPercent, setSplitPercent] = useState(50)
+  const [isDraggingSplit, setIsDraggingSplit] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isSpaceDown, setIsSpaceDown] = useState(false)
@@ -122,7 +125,7 @@ export function Canvas() {
     if (!imageEl || !canvasRef.current || !stageRef.current) return
     const cv = canvasRef.current
     const stage = stageRef.current
-    const originalImg = comparing ? (history[0]?.imageEl || imageEl) : imageEl
+    const originalImg = history[0]?.imageEl || imageEl
     const maxW = stage.clientWidth - 80
     const maxH = stage.clientHeight - 60
     const sc = Math.min(maxW / originalImg.naturalWidth, maxH / originalImg.naturalHeight, 1)
@@ -132,9 +135,30 @@ export function Canvas() {
     cv.style.height = Math.round(H * sc * zoom) + 'px'
 
     const ctx = cv.getContext('2d', { willReadFrequently: true })!
-    ctx.drawImage(originalImg, 0, 0)
 
-    if (!comparing) {
+    if (comparing) {
+      ctx.drawImage(originalImg, 0, 0)
+    } else if (splitMode) {
+      // 1. Draw original on main context
+      ctx.drawImage(originalImg, 0, 0)
+      
+      // 2. Create offscreen canvas for edited image
+      const offscreen = document.createElement('canvas')
+      offscreen.width = W
+      offscreen.height = H
+      const oCtx = offscreen.getContext('2d', { willReadFrequently: true })!
+      oCtx.drawImage(imageEl, 0, 0)
+      
+      // Apply edits to offscreen canvas
+      pixelPipeline(oCtx, W, H, adjustments, curves, colorGrading, adjustmentLayers, maskCanvasesRef.current)
+      
+      // 3. Draw the right part of the edited offscreen canvas onto main canvas
+      const splitX = Math.round((splitPercent / 100) * W)
+      if (splitX < W) {
+        ctx.drawImage(offscreen, splitX, 0, W - splitX, H, splitX, 0, W - splitX, H)
+      }
+    } else {
+      ctx.drawImage(imageEl, 0, 0)
       pixelPipeline(ctx, W, H, adjustments, curves, colorGrading, adjustmentLayers, maskCanvasesRef.current)
     }
 
@@ -171,7 +195,7 @@ export function Canvas() {
         oCtx.putImageData(oData, 0, 0)
       }
     }
-  }, [imageEl, adjustments, curves, colorGrading, zoom, comparing, history, useEditorStore(s => s.adjustmentLayers), useEditorStore(s => s.activeAdjustmentLayerId), activeTool])
+  }, [imageEl, adjustments, curves, colorGrading, zoom, comparing, history, useEditorStore(s => s.adjustmentLayers), useEditorStore(s => s.activeAdjustmentLayerId), activeTool, splitMode, splitPercent])
 
   const schedRender = useCallback(() => {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
@@ -1049,6 +1073,57 @@ export function Canvas() {
     if (f) loadFile(f)
   }
 
+  // ─── Split Screen Dragging ───────────────────────────────────────────────────
+  const handleSplitDividerMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingSplit(true)
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+
+    function handleMouseMove(ev: MouseEvent) {
+      const x = ev.clientX - rect.left
+      const pct = Math.max(0, Math.min(100, (x / rect.width) * 100))
+      setSplitPercent(pct)
+    }
+
+    function handleMouseUp() {
+      setIsDraggingSplit(false)
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }
+
+  const handleSplitDividerTouchStart = (e: React.TouchEvent) => {
+    e.stopPropagation()
+    setIsDraggingSplit(true)
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+
+    function handleTouchMove(ev: TouchEvent) {
+      const clientX = ev.touches[0].clientX
+      const x = clientX - rect.left
+      const pct = Math.max(0, Math.min(100, (x / rect.width) * 100))
+      setSplitPercent(pct)
+    }
+
+    function handleTouchEnd() {
+      setIsDraggingSplit(false)
+      window.removeEventListener('touchmove', handleTouchMove)
+      window.removeEventListener('touchend', handleTouchEnd)
+    }
+
+    window.addEventListener('touchmove', handleTouchMove, { passive: true })
+    window.addEventListener('touchend', handleTouchEnd)
+  }
+
   // ─── Compare ─────────────────────────────────────────────────────────────────
   function startCompare() {
     if (!imageEl || !canvasRef.current) return
@@ -1309,9 +1384,67 @@ export function Canvas() {
               position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
               background: 'rgba(0,0,0,0.7)', border: '1px solid var(--b2)', borderRadius: 20,
               padding: '3px 12px', fontSize: 11, color: 'var(--t2)', whiteSpace: 'nowrap',
+              zIndex: 30,
             }}>
               Original
             </div>
+          )}
+          {splitMode && !comparing && (
+            <>
+              {/* Labels */}
+              <div style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: 4, color: '#fff', fontSize: 10, fontWeight: 600, pointerEvents: 'none', letterSpacing: '0.05em', zIndex: 25 }}>
+                BEFORE
+              </div>
+              <div style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: 4, color: '#fff', fontSize: 10, fontWeight: 600, pointerEvents: 'none', letterSpacing: '0.05em', zIndex: 25 }}>
+                AFTER
+              </div>
+
+              {/* Draggable Divider */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  bottom: 0,
+                  left: `${splitPercent}%`,
+                  width: 2,
+                  background: 'rgba(255, 255, 255, 0.95)',
+                  boxShadow: '0 0 8px rgba(0, 0, 0, 0.5)',
+                  transform: 'translateX(-50%)',
+                  zIndex: 30,
+                  pointerEvents: 'auto',
+                  cursor: 'ew-resize',
+                }}
+                onMouseDown={handleSplitDividerMouseDown}
+                onTouchStart={handleSplitDividerTouchStart}
+              >
+                {/* Circular Handle */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: 32,
+                    height: 32,
+                    borderRadius: '50%',
+                    background: 'var(--s1)',
+                    border: '1.5px solid var(--b2)',
+                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.6)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--t1)',
+                    fontSize: 12,
+                    fontWeight: 'bold',
+                    userSelect: 'none',
+                    transition: 'background var(--fast), scale var(--fast)',
+                    scale: isDraggingSplit ? 1.15 : 1,
+                  }}
+                >
+                  ↔
+                </div>
+              </div>
+            </>
           )}
         </div>
 
@@ -1420,13 +1553,33 @@ export function Canvas() {
           </div>
         )}
 
-        {/* Compare button */}
+        {/* Compare buttons */}
         {imageEl && (
           <div style={{
             position: 'absolute', bottom: 14, right: 14,
             display: 'flex', background: 'var(--s2)', border: '1px solid var(--b2)',
             borderRadius: 'var(--r)', overflow: 'hidden', zIndex: 10,
           }}>
+            <button
+              onClick={() => {
+                setSplitMode(!splitMode)
+                setSplitPercent(50)
+              }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '0 12px', height: 32,
+                background: splitMode ? 'var(--ag2)' : 'none',
+                border: 'none', cursor: 'pointer',
+                color: splitMode ? 'var(--a)' : 'var(--t2)', fontSize: 12, whiteSpace: 'nowrap',
+                transition: 'background var(--fast), color var(--fast)',
+                fontWeight: splitMode ? 600 : 400,
+                borderRight: '1px solid var(--b1)',
+              }}
+              title="Toggle before/after split screen comparison"
+            >
+              <Columns2 size={13} strokeWidth={2} />
+              Split Screen
+            </button>
             <button
               onMouseDown={startCompare}
               onMouseUp={endCompare}
@@ -1440,8 +1593,8 @@ export function Canvas() {
                 color: 'var(--t2)', fontSize: 12, whiteSpace: 'nowrap',
                 transition: 'background var(--fast)',
               }}
+              title="Hold down to quickly view the original image"
             >
-              <Columns2 size={13} strokeWidth={2} />
               Hold to compare
             </button>
           </div>

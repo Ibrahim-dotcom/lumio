@@ -168,68 +168,116 @@ export function PromptBar() {
       return
     }
 
-    // Otherwise, query LLM for adjustment changes
+    // Query Gemini — it returns scope + deltas
     try {
-      let localTarget: 'face' | 'subject' | 'sky' | 'background' | null = null
-      let maskName = ''
-      const loText = text.toLowerCase()
-      
-      if (/\b(face|skin|eyes|cheeks)\b/i.test(loText)) {
-        localTarget = 'face'
-        maskName = 'Face Mask'
-      } else if (/\b(sky|clouds)\b/i.test(loText)) {
-        localTarget = 'sky'
-        maskName = 'Sky Mask'
-      } else if (/\b(background|bg)\b/i.test(loText)) {
-        localTarget = 'background'
-        maskName = 'Background Mask'
-      } else if (/\b(subject|foreground|person|model|car|shoes|clothing)\b/i.test(loText)) {
-        localTarget = 'subject'
-        maskName = 'Subject Mask'
-      }
-
-      if (localTarget && backendImageId) {
-        try {
-          const apiTarget = localTarget === 'background' ? 'subject' : localTarget
-          const detectRes = await detectMask(backendImageId, apiTarget)
-          
-          addAdjustmentLayer()
-          const activeId = useEditorStore.getState().activeAdjustmentLayerId
-          if (activeId) {
-            useEditorStore.setState(s => ({
-              adjustmentLayers: s.adjustmentLayers.map(l =>
-                l.id === activeId ? { ...l, name: maskName } : l
-              )
-            }))
-            window.dispatchEvent(
-              new CustomEvent('lumio_set_mask', {
-                detail: {
-                  layerId: activeId,
-                  maskBase64: detectRes.mask,
-                  invert: localTarget === 'background'
-                }
-              })
-            )
-          }
-        } catch (err) {
-          console.error('Smart masking detection failed:', err)
-        }
-      }
-
-      const { deltas, source } = await callAIPlanner(text)
+      const { deltas, source, scope } = await callAIPlanner(text)
       setAiIsTyping(false)
 
       if ('_unsupported' in deltas && deltas._unsupported) {
         addChatMessage({
           id: Math.random().toString(),
           role: 'assistant',
-          content: 'Sorry, I couldn\'t map that to adjustments. Try something like "make it golden", "increase contrast", or "remove background".',
+          content: 'Sorry, I couldn\'t map that to photo adjustments. Try something like "make it golden", "add cinematic look", or "warm the sky".',
           timestamp: Date.now()
         })
         return
       }
 
       const adjustmentsDeltas = deltas as Partial<Adjustments>
+
+      // ─── Selective / masked edit ─────────────────────────────────────────────
+      // When Gemini returns a non-global scope AND we have a backend image,
+      // detect the mask for that region and apply deltas only inside it.
+      if (scope !== 'global' && backendImageId) {
+        // Map scope to the detect API type + UI label
+        const scopeConfig: Record<string, { apiType: 'face' | 'subject' | 'sky'; label: string; invert: boolean }> = {
+          sky:        { apiType: 'sky',     label: 'Sky Mask',        invert: false },
+          face:       { apiType: 'face',    label: 'Face Mask',       invert: false },
+          subject:    { apiType: 'subject', label: 'Subject Mask',    invert: false },
+          background: { apiType: 'subject', label: 'Background Mask', invert: true  },
+        }
+        const cfg = scopeConfig[scope]
+
+        if (cfg) {
+          try {
+            // Tell user we're detecting the region
+            addChatMessage({
+              id: Math.random().toString(),
+              role: 'assistant',
+              content: `Detecting ${cfg.label.toLowerCase()} for selective edit…`,
+              timestamp: Date.now(),
+            })
+
+            const detectRes = await detectMask(backendImageId, cfg.apiType)
+
+            // Create a new adjustment layer and set it active
+            addAdjustmentLayer()
+            const activeId = useEditorStore.getState().activeAdjustmentLayerId
+            if (activeId) {
+              // Name the layer and apply the mask to it
+              useEditorStore.setState(s => ({
+                adjustmentLayers: s.adjustmentLayers.map(l =>
+                  l.id === activeId ? { ...l, name: cfg.label } : l
+                )
+              }))
+              window.dispatchEvent(
+                new CustomEvent('lumio_set_mask', {
+                  detail: { layerId: activeId, maskBase64: detectRes.mask, invert: cfg.invert }
+                })
+              )
+              // Apply deltas to the masked layer (activeAdjustmentLayerId is now set)
+              applyAdjustmentDelta(adjustmentsDeltas)
+              pushHistory(text)
+
+              const detailsList = Object.entries(adjustmentsDeltas)
+                .map(([k, v]) => `${k}: ${v! > 0 ? '+' : ''}${v}`)
+                .join(', ')
+
+              addChatMessage({
+                id: Math.random().toString(),
+                role: 'assistant',
+                content: `Applied selective edit to ${cfg.label} only.`,
+                timestamp: Date.now(),
+                actionCard: {
+                  type: 'adjustments',
+                  summary: `${cfg.label} · ${Object.keys(adjustmentsDeltas).length} changes (${source === 'gemini' ? 'AI Planner ✦' : 'Rule Fallback ⚙'})`,
+                  details: detailsList
+                }
+              })
+            }
+          } catch (err) {
+            console.warn('[Lumio] Mask detection failed, falling back to global edit:', err)
+            // Mask failed → apply globally with a note
+            applyAdjustmentDelta(adjustmentsDeltas)
+            pushHistory(text)
+            addChatMessage({
+              id: Math.random().toString(),
+              role: 'assistant',
+              content: `Couldn't detect the ${scope} automatically — applied globally instead.`,
+              timestamp: Date.now(),
+              actionCard: {
+                type: 'adjustments',
+                summary: `Global · ${Object.keys(adjustmentsDeltas).length} changes (${source === 'gemini' ? 'AI Planner ✦' : 'Rule Fallback ⚙'})`,
+                details: Object.entries(adjustmentsDeltas).map(([k, v]) => `${k}: ${v! > 0 ? '+' : ''}${v}`).join(', ')
+              }
+            })
+          }
+
+          // Smart chips tracking
+          const lo = text.toLowerCase()
+          setAppliedChips(prev => {
+            const next = new Set(prev)
+            CHIPS.forEach(c => {
+              const key = c.label.replace(/[^\w]/g, '').toLowerCase().slice(0, 5)
+              if (lo.includes(key)) next.add(c.label)
+            })
+            return next
+          })
+          return // Done — masked path complete
+        }
+      }
+
+      // ─── Global edit (scope === 'global' or no backendImageId) ───────────────
       applyAdjustmentDelta(adjustmentsDeltas)
       pushHistory(text)
 
@@ -241,11 +289,11 @@ export function PromptBar() {
       addChatMessage({
         id: Math.random().toString(),
         role: 'assistant',
-        content: `I've adjusted the adjustments for you.`,
+        content: `Applied to entire image.`,
         timestamp: Date.now(),
         actionCard: {
           type: 'adjustments',
-          summary: `Applied ${appliedKeys.length} changes (${source === 'gemini' ? 'AI Planner ✦' : 'Rule Fallback ⚙'})`,
+          summary: `Global · ${appliedKeys.length} changes (${source === 'gemini' ? 'AI Planner ✦' : 'Rule Fallback ⚙'})`,
           details: detailsList
         }
       })
@@ -304,6 +352,11 @@ export function PromptBar() {
       if (e.key === 's' && e.target instanceof Element && e.target.tagName !== 'INPUT') useEditorStore.getState().setActiveTool('stamp')
       if (e.key === 't' && e.target instanceof Element && e.target.tagName !== 'INPUT') useEditorStore.getState().setActiveTool('text')
       if (e.key === 'i' && e.target instanceof Element && e.target.tagName !== 'INPUT') useEditorStore.getState().setActiveTool('pick')
+      if (e.key === '?' && e.target instanceof Element && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && !e.target.hasAttribute('contenteditable')) {
+        e.preventDefault()
+        const store = useEditorStore.getState()
+        store.setShowShortcuts(!store.showShortcuts)
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)

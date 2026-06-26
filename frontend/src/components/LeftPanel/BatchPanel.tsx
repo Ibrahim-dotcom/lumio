@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Upload, Play, CheckCircle2, XCircle, Loader2,
   Download, Layers, ChevronDown, ChevronUp,
-  Zap, ImageIcon, AlertTriangle, RefreshCw,
+  ImageIcon, AlertTriangle, RefreshCw,
 } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import * as api from '../../services/api'

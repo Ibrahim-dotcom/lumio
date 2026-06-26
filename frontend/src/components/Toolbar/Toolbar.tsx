@@ -4,7 +4,7 @@ import { useEditorStore } from '../../store/editorStore'
 import type { Tool } from '../../store/editorStore'
 import {
   MousePointer2, Crop, Sparkles, Pipette,
-  Undo2, Redo2, RotateCcw, Download, Stamp, Type, Square, Circle, Brush
+  Undo2, Redo2, RotateCcw, Download, Stamp, Type, Square, Circle, Brush, HelpCircle
 } from 'lucide-react'
 
 const TOOLS: { id: Tool; label: string; icon: React.ReactNode; key: string }[] = [
@@ -28,6 +28,8 @@ export function Toolbar() {
   const imageEl = useEditorStore(s => s.imageEl)
   const showToast = useEditorStore(s => s.showToast)
   const pushHistory = useEditorStore(s => s.pushHistory)
+  const showShortcuts = useEditorStore(s => s.showShortcuts)
+  const setShowShortcuts = useEditorStore(s => s.setShowShortcuts)
 
   function handleReset() {
     if (!imageEl) return
@@ -105,6 +107,10 @@ export function Toolbar() {
 
         <ToolBtn onClick={handleReset} danger title="Reset all edits">
           <RotateCcw size={14} strokeWidth={1.8} />Reset
+        </ToolBtn>
+
+        <ToolBtn onClick={() => setShowShortcuts(!showShortcuts)} active={showShortcuts} title="Keyboard Shortcuts (?)">
+          <HelpCircle size={14} strokeWidth={1.8} />Help
         </ToolBtn>
 
         <motion.button

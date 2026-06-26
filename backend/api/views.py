@@ -48,7 +48,7 @@ FALLBACK_RULES = [
 ]
 
 SYSTEM_PROMPT = """You are the AI engine of Lumio, a professional photo editor.
-A user will describe a photo edit in natural language. You translate it into pixel adjustments.
+A user will describe a photo edit in natural language. You translate it into structured pixel adjustments.
 
 ADJUSTMENT KEYS AND RANGES:
 exposure: -100 to 100, brightness: -100 to 100, contrast: -100 to 100,
@@ -58,17 +58,73 @@ vibrance: -100 to 100, hue: -180 to 180, sharpness: 0 to 100,
 clarity: -100 to 100, dehaze: -100 to 100, noise: 0 to 100,
 vignette: -100 to 0 (ALWAYS negative), grain: 0 to 100, fade: 0 to 100, glow: 0 to 100
 
-RULES:
-1. Return ONLY raw JSON. No markdown, no explanation.
-2. Include ONLY keys that should change.
-3. Values are DELTA from current.
-4. "slightly/a bit" = *0.35, "very/extremely" = *1.65.
-5. If request cannot be mapped return {"_unsupported":true}.
-6. Cinematic = contrast+cool+vignette. Dreamy = glow+clarity-+fade. Film = grain+fade+desaturate.
+OUTPUT FORMAT — always return a single JSON object with exactly these two top-level keys:
+{
+  "scope": "<global | sky | face | subject | background>",
+  "deltas": { <only the keys that should change> }
+}
+
+SCOPE RULES:
+- "global"     = edit affects the entire image (default for most prompts)
+- "sky"        = user explicitly targets sky, clouds, or horizon
+- "face"       = user explicitly targets skin, face, eyes, cheeks, portrait glow
+- "subject"    = user explicitly targets the main foreground person/object (car, product, model, outfit)
+- "background" = user explicitly targets the background only
+
+ADJUSTMENT RULES:
+1. Values are DELTA from current (positive = increase, negative = decrease).
+2. "slightly / a bit" = multiply values by 0.35. "very / extremely" = multiply by 1.65.
+3. Only include keys that should change — omit all unchanged sliders.
+4. vignette is ALWAYS negative (e.g. -50 for a strong vignette).
+5. If the request is completely unrelated to photo editing, return:
+   {"scope":"global","deltas":{"_unsupported":true}}
+
+PRESET RECIPES:
+- Cinematic:   {"contrast":26,"temperature":-18,"saturation":18,"vignette":-38,"clarity":12}
+- Dreamy:      {"glow":42,"clarity":-20,"brightness":8,"fade":18}
+- Film/Kodak:  {"grain":28,"fade":20,"saturation":-18,"temperature":12}
+- Golden hour: {"temperature":38,"saturation":20,"highlights":-10}
+- Dramatic/HDR:{"contrast":38,"clarity":42,"saturation":20,"dehaze":28}
+- Matte:       {"fade":38,"saturation":-20,"contrast":-22}
+- Vintage:     {"saturation":-20,"contrast":-15,"temperature":20,"grain":28,"fade":20}
+- Black & white:{"saturation":-100}
+
+EXAMPLES — study these carefully:
+"make the sky warm"      -> {"scope":"sky",        "deltas":{"temperature":35,"saturation":15}}
+"cool blue sky"          -> {"scope":"sky",        "deltas":{"temperature":-35,"saturation":10}}
+"golden sky"             -> {"scope":"sky",        "deltas":{"temperature":38,"saturation":20}}
+"dramatic clouds"        -> {"scope":"sky",        "deltas":{"contrast":30,"dehaze":25,"clarity":15}}
+"make the skin glow"     -> {"scope":"face",       "deltas":{"brightness":8,"vibrance":15,"clarity":-8,"glow":12}}
+"smooth skin tone"       -> {"scope":"face",       "deltas":{"brightness":6,"vibrance":12,"clarity":-12}}
+"warm portrait"          -> {"scope":"face",       "deltas":{"temperature":20,"vibrance":15,"brightness":8}}
+"darken the background"  -> {"scope":"background", "deltas":{"brightness":-25,"exposure":-15}}
+"blur the background"    -> {"scope":"background", "deltas":{"clarity":-30,"brightness":-10}}
+"make the subject pop"   -> {"scope":"subject",    "deltas":{"contrast":20,"clarity":15,"vibrance":18}}
+"brighten the product"   -> {"scope":"subject",    "deltas":{"exposure":20,"brightness":15}}
+"add cinematic look"     -> {"scope":"global",     "deltas":{"contrast":26,"temperature":-18,"saturation":18,"vignette":-38,"clarity":12}}
+"make it warmer"         -> {"scope":"global",     "deltas":{"temperature":35}}
+"increase contrast"      -> {"scope":"global",     "deltas":{"contrast":30}}
+"make it pop"            -> {"scope":"global",     "deltas":{"contrast":30,"clarity":20,"vibrance":20}}
+"add vignette"           -> {"scope":"global",     "deltas":{"vignette":-50}}
+"add film grain"         -> {"scope":"global",     "deltas":{"grain":30,"fade":15,"saturation":-10}}
+"write me a poem"        -> {"scope":"global",     "deltas":{"_unsupported":true}}
 """
+
 
 def _fallback_parse(prompt: str) -> dict:
     lo = prompt.lower()
+    
+    # Detect scope based on keywords
+    scope = 'global'
+    if any(p in lo for p in ['sky', 'skies', 'cloud', 'clouds', 'horizon']):
+        scope = 'sky'
+    elif any(p in lo for p in ['skin', 'face', 'portrait', 'eye', 'eyes', 'cheek', 'cheeks']):
+        scope = 'face'
+    elif any(p in lo for p in ['background', 'bg']):
+        scope = 'background'
+    elif any(p in lo for p in ['subject', 'foreground', 'person', 'model', 'car', 'shoes', 'clothing', 'product']):
+        scope = 'subject'
+
     result = {}
     hit = False
     for patterns, adj in FALLBACK_RULES:
@@ -78,23 +134,88 @@ def _fallback_parse(prompt: str) -> dict:
                 hit = True
                 break
     if not hit:
-        return {'_unsupported': True}
+        return {'scope': 'global', 'deltas': {'_unsupported': True}}
+    
     import re
     strong = bool(re.search(r'\b(very|extremely|super|heavily)\b', lo))
     light  = bool(re.search(r'\b(slightly|a bit|subtle|barely|gently)\b', lo))
     factor = 1.65 if strong else 0.35 if light else 1.0
-    return {k: round(v * factor) for k, v in result.items()}
+    deltas = {k: round(v * factor) for k, v in result.items()}
+    return {'scope': scope, 'deltas': deltas}
 
 
 class AIPlannerView(APIView):
     """
     POST /api/ai/plan/
     Body: { "prompt": str }
-    Returns: { "deltas": {...} } or { "_unsupported": true }
+    Returns: { "scope": str, "deltas": {...}, "source": str }
+
+    scope is one of: global | sky | face | subject | background
+    When scope != global the frontend should create a masked adjustment layer
+    via /api/ai/detect/ before applying the deltas.
 
     Keeps the Gemini API key server-side — never exposed to the browser.
-    Falls back to keyword parser if no key is configured or Gemini errors.
+    Tries multiple Gemini models with retry logic on transient errors.
+    Falls back to keyword parser only if all models fail.
     """
+
+    # Models tried in order — first one to succeed wins
+    GEMINI_MODELS = [
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-2.0-flash-lite',
+        'gemini-flash-latest',
+    ]
+
+    def _call_gemini(self, api_key: str, prompt: str) -> dict:
+        """
+        Try each model in sequence.
+        Returns a dict with keys: scope (str) and deltas (dict).
+        Gemini now returns {"scope": ..., "deltas": {...}} per the system prompt.
+        """
+        import time
+        last_exc = None
+        for model in self.GEMINI_MODELS:
+            url = (
+                f'https://generativelanguage.googleapis.com/v1beta/models/'
+                f'{model}:generateContent?key={api_key}'
+            )
+            payload = {
+                'contents': [{'parts': [{'text': f'{SYSTEM_PROMPT}\n\nUser request: "{prompt}"'}]}],
+                'generationConfig': {'responseMimeType': 'application/json'},
+            }
+            for attempt in range(2):  # 2 attempts per model
+                try:
+                    resp = http_requests.post(url, json=payload, timeout=20)
+                    if resp.status_code == 429:
+                        logger.warning('[AI] Model %s rate-limited (429), trying next', model)
+                        break
+                    if resp.status_code == 503:
+                        if attempt == 0:
+                            time.sleep(1.5)
+                            continue
+                        logger.warning('[AI] Model %s overloaded (503), trying next', model)
+                        break
+                    resp.raise_for_status()
+                    raw = resp.json()
+                    text = raw['candidates'][0]['content']['parts'][0]['text'].strip()
+                    parsed = json.loads(text)
+                    # Normalise — Gemini should return {scope, deltas} but guard for old format
+                    if 'deltas' in parsed and 'scope' in parsed:
+                        scope = parsed['scope']
+                        deltas = parsed['deltas']
+                    else:
+                        # Legacy / unexpected flat format — treat as global
+                        scope = 'global'
+                        deltas = parsed
+                    logger.info('[AI] Model %s | scope=%s | prompt: %s', model, scope, prompt[:60])
+                    return {'scope': scope, 'deltas': deltas}
+                except Exception as exc:
+                    last_exc = exc
+                    logger.warning('[AI] Model %s attempt %d failed: %s', model, attempt + 1, exc)
+                    if attempt == 0:
+                        time.sleep(0.5)
+        raise RuntimeError(f'All Gemini models failed. Last error: {last_exc}')
 
     def post(self, request):
         prompt = request.data.get('prompt', '').strip()
@@ -104,25 +225,23 @@ class AIPlannerView(APIView):
         api_key = getattr(settings, 'GEMINI_API_KEY', '')
         if api_key:
             try:
-                url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}'
-                payload = {
-                    'contents': [{'parts': [{'text': f'{SYSTEM_PROMPT}\n\nUser request: "{prompt}"'}]}],
-                    'generationConfig': {'responseMimeType': 'application/json'}
-                }
-                resp = http_requests.post(url, json=payload, timeout=15)
-                resp.raise_for_status()
-                raw = resp.json()
-                text = raw['candidates'][0]['content']['parts'][0]['text'].strip()
-                deltas = json.loads(text)
-                logger.info('[AI] Gemini responded for prompt: %s', prompt[:60])
-                return Response({'deltas': deltas, 'source': 'gemini'})
+                result = self._call_gemini(api_key, prompt)
+                return Response({
+                    'scope': result.get('scope', 'global'),
+                    'deltas': result.get('deltas', {}),
+                    'source': 'gemini',
+                })
             except Exception as exc:
-                logger.warning('[AI] Gemini failed (%s), using fallback', exc)
+                logger.warning('[AI] All Gemini models failed (%s), using fallback', exc)
 
-        # Fallback to keyword parser
-        deltas = _fallback_parse(prompt)
-        logger.info('[AI] Fallback parse for: %s', prompt[:60])
-        return Response({'deltas': deltas, 'source': 'fallback'})
+        # Keyword fallback
+        result = _fallback_parse(prompt)
+        logger.info('[AI] Fallback parse for: %s | scope: %s', prompt[:60], result.get('scope'))
+        return Response({
+            'scope': result.get('scope', 'global'),
+            'deltas': result.get('deltas', {}),
+            'source': 'fallback'
+        })
 
 
 class HealImageView(APIView):

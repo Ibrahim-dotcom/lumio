@@ -62,10 +62,12 @@ function localFallback(prompt: string): Partial<Adjustments> | { _unsupported: t
 
 // ─── Main entrypoint — calls Django backend (Gemini key stays server-side) ───
 export type AIPlannerResult = Partial<Adjustments> | { _unsupported: true }
+export type AIPlannerScope = 'global' | 'sky' | 'face' | 'subject' | 'background'
 
 export interface AIPlannerResponse {
   deltas: AIPlannerResult
   source: 'gemini' | 'fallback'
+  scope: AIPlannerScope
 }
 
 export async function callAIPlanner(prompt: string): Promise<AIPlannerResponse> {
@@ -73,13 +75,15 @@ export async function callAIPlanner(prompt: string): Promise<AIPlannerResponse> 
     const res = await callAIPlannerBackend(prompt)
     return {
       deltas: res.deltas as AIPlannerResult,
-      source: res.source as 'gemini' | 'fallback'
+      source: res.source as 'gemini' | 'fallback',
+      scope: (res.scope as AIPlannerScope) ?? 'global',
     }
   } catch (err) {
     console.warn('[Lumio] Backend AI planner unreachable, using local fallback.', err)
     return {
       deltas: localFallback(prompt) as AIPlannerResult,
-      source: 'fallback'
+      source: 'fallback',
+      scope: 'global',
     }
   }
 }

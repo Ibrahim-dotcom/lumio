@@ -252,16 +252,16 @@ export interface EditorStore {
   processingSubMessage: string
   processingStep: number
   setProcessing: (on: boolean, msg?: string, sub?: string, step?: number) => void
-  toastMsg: string | null
-  toastError: boolean
-  showToast: (msg: string, isError?: boolean) => void
-
   // Batch Preview State
   batchPreviewId: string | null
   setBatchPreview: (id: string | null) => void
 
   toast: { message: string; isError: boolean; key: number } | null
   showToast: (msg: string, isError?: boolean) => void
+
+  // Shortcuts overlay
+  showShortcuts: boolean
+  setShowShortcuts: (open: boolean) => void
 
   // Chat State
   chatMessages: ChatMessage[]
@@ -606,6 +606,9 @@ export const useEditorStore = create<EditorStore>()(
 
     toast: null,
     showToast: (message, isError = false) => set({ toast: { message, isError, key: Date.now() } }),
+
+    showShortcuts: false,
+    setShowShortcuts: (open) => set({ showShortcuts: open }),
 
     // Chat State
     chatMessages: [],

@@ -1,12 +1,13 @@
 import React, { useRef, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useEditorStore } from '../../store/editorStore'
-import { Eye, EyeOff, Lock, Unlock, Clock, Info, Layers, ImageIcon, Zap, LayoutList } from 'lucide-react'
+import { Eye, EyeOff, Lock, Unlock, Clock, Info, Layers, ImageIcon, Zap, LayoutList, Sliders } from 'lucide-react'
 import { useUpload } from '../../hooks/useUpload'
 import { WorkflowsTab } from './WorkflowsTab'
 import { BatchPanel } from './BatchPanel'
+import { PresetsTab } from './PresetsTab'
 
-type LeftTab = 'hist' | 'layers' | 'wf' | 'batch' | 'info'
+type LeftTab = 'hist' | 'layers' | 'presets' | 'wf' | 'batch' | 'info'
 
 export function LeftPanel() {
   const [activeTab, setActiveTab] = useState<LeftTab>('hist')
@@ -73,6 +74,7 @@ export function LeftPanel() {
   const TABS = [
     { id: 'hist' as LeftTab, label: 'History', icon: <Clock size={11} /> },
     { id: 'layers' as LeftTab, label: 'Layers', icon: <Layers size={11} /> },
+    { id: 'presets' as LeftTab, label: 'Presets', icon: <Sliders size={11} /> },
     { id: 'wf' as LeftTab, label: 'Workflows', icon: <Zap size={11} /> },
     { id: 'batch' as LeftTab, label: 'Batch', icon: <LayoutList size={11} /> },
     { id: 'info' as LeftTab, label: 'Info', icon: <Info size={11} /> },
@@ -386,6 +388,18 @@ export function LeftPanel() {
                   )}
                 </div>
               </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'presets' && (
+            <motion.div
+              key="presets"
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 8 }}
+              transition={{ duration: 0.15 }}
+            >
+              <PresetsTab />
             </motion.div>
           )}
 
