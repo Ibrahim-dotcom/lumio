@@ -2,7 +2,12 @@ import urllib.request
 import urllib.error
 import json
 
-API_KEY = "AIzaSyBbB8JTg0zppLQ6ofEno-TiBwv3ImL26UU"
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # Try multiple models in order of preference
 MODELS = [
